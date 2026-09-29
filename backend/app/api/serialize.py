@@ -3,6 +3,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app import services
+from app.catalog import MEDISCA_URL
 from app.models import Decision, Draft, Job, SearchRequest, SourceDocument, User
 from app.services import iso
 
@@ -18,6 +19,13 @@ def user(u: User) -> dict[str, Any]:
     }
 
 
+def _catalog_ref(ref: dict[str, Any] | None) -> dict[str, Any] | None:
+    # Requests saved before MEDISCA catalog entries had links get the same link here.
+    if ref and ref.get("source") == "MEDISCA" and not ref.get("url") and ref.get("formula_id"):
+        return {**ref, "url": MEDISCA_URL.format(ref["formula_id"])}
+    return ref
+
+
 def request_summary(r: SearchRequest) -> dict[str, Any]:
     return {
         "id": r.id,
@@ -29,7 +37,7 @@ def request_summary(r: SearchRequest) -> dict[str, Any]:
         "notes": r.notes,
         "exact_match_only": r.exact_match_only,
         "sources": r.sources,
-        "catalog_ref": r.catalog_ref,
+        "catalog_ref": _catalog_ref(r.catalog_ref),
         "status": r.status,
         "created_at": iso(r.created_at),
     }

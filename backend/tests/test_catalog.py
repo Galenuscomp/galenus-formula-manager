@@ -78,7 +78,9 @@ def test_search_matches_every_word_across_sources(client):
     assert [h["formula_id"] for h in api.get("/api/catalog/search", params={"q": "10-mg/mL syrup"}).json()] == ["11"]
     # Words match from their start only.
     assert api.get("/api/catalog/search", params={"q": "plamide"}).json() == []
-    assert api.get("/api/catalog/search", params={"q": "trOcheS"}).json()[0]["strength"] == "200 000 IU"
+    troches = api.get("/api/catalog/search", params={"q": "trOcheS"}).json()[0]
+    assert troches["strength"] == "200 000 IU"
+    assert troches["url"] == "https://www.medisca.com/formulas/library?q=F000003"
     assert api.get("/api/catalog/search", params={"q": "x"}).json() == []
     assert api.get("/api/catalog/search", params={"q": "100%_"}).json() == []  # LIKE wildcards are literal
     ct = api.get("/api/catalog/search", params={"q": "otherazole", "source": "CompoundingToday"}).json()
@@ -97,6 +99,10 @@ def test_request_keeps_catalog_ref(client):
     # Re-importing the catalog does not touch the request's copy.
     _import(client("admin"), MEDISCA_CSV)
     assert api.get(f"/api/requests/{req.json()['id']}").json()["catalog_ref"] == ref
+    # A MEDISCA pick saved without a link (older requests) is shown with one.
+    old = api.post("/api/requests", json={"active_ingredient": "X", "sources": [],
+                                          "catalog_ref": {**ref, "url": ""}}).json()
+    assert api.get(f"/api/requests/{old['id']}").json()["catalog_ref"]["url"] == ref["url"]
 
 
 def test_admin_edits_email(client, users):

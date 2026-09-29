@@ -43,6 +43,7 @@ _ROUTES = ["oral", "topical", "transdermal", "rectal", "vaginal", "ophthalmic", 
            "buccal", "dental", "parenteral", "intravitreal", "inhalation"]
 _LIQUID_KINDS = {"solution", "suspension", "emulsion", "syrup", "elixir"}
 SOURCES = ("MEDISCA", "CompoundingToday")
+MEDISCA_URL = "https://www.medisca.com/formulas/library?q={}"
 
 
 def normalize(text: str) -> str:
@@ -149,7 +150,9 @@ def import_csv(db: Session, data: bytes) -> dict:
         if source == "MEDISCA":
             fid, title = (r.get("Formula Number") or "").strip(), (r.get("API(s) & Strength") or "").strip()
             route, form = (r.get("Route of Delivery") or "").strip(), (r.get("Dosage Form") or "").strip()
-            base, url = (r.get("Base") or "").strip(), ""
+            base = (r.get("Base") or "").strip()
+            # MEDISCA has no page per formula; its library filtered to the number is the closest.
+            url = MEDISCA_URL.format(fid) if re.fullmatch(r"[A-Z]\d{6}", fid) else ""
             parsed = parse_medisca(title, route, form)
         else:
             fid, title = (r.get("CompoundingToday ID") or "").strip(), (r.get("Formula title") or "").strip()
