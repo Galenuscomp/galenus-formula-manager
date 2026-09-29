@@ -116,8 +116,16 @@ def _download(page, context, number: str) -> tuple[bytes, str]:
     title = re.sub(r"\s+", " ", row.locator("td").first.inner_text()).strip() if row.count() else ""
 
     downloads, pages = [], []
-    page.on("download", downloads.append)
-    context.on("page", lambda p: (pages.append(p), p.on("download", downloads.append)))
+
+    def on_download(d):  # Playwright needs a Python function here, not a bound builtin
+        downloads.append(d)
+
+    def on_page(p):
+        pages.append(p)
+        p.on("download", on_download)
+
+    page.on("download", on_download)
+    context.on("page", on_page)
     with page.expect_response(lambda r: "formula_downloads" in r.url, timeout=NAV_TIMEOUT_MS) as info:
         button.click()
     response = info.value
