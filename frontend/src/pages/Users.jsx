@@ -159,6 +159,9 @@ export default function Users() {
                   {u.ai_provider && u.ai_provider !== "default" ? ` · AI: ${AI_LABELS[u.ai_provider] || u.ai_provider}` : ""}
                 </p>
                 {!u.has_password && <p className="text-xs text-amber-700">Invitation pending — has not set a password yet</p>}
+                {u.role === "pharmacist" && !u.licence_number && (
+                  <p className="text-xs text-amber-700">No licence number — cannot approve formulas until one is added</p>
+                )}
               </button>
               <label className="flex items-center gap-2 text-xs text-slate-500">
                 {u.is_active ? "Active" : "Disabled"}

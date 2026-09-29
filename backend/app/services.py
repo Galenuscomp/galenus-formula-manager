@@ -303,9 +303,20 @@ def _check_version(draft: Draft, row_version: int) -> None:
         )
 
 
-def save_draft(db: Session, draft: Draft, content: dict[str, Any], row_version: int) -> Draft:
+def can_edit(draft: Draft, user: User) -> bool:
+    """While a draft waits for approval only its submitter may edit it (which withdraws the
+    submission); the reviewing pharmacist approves, or returns it for correction with notes."""
+    if draft.status not in EDITABLE_STATUSES or user.role not in ("pharmacist", "technician"):
+        return False
+    return draft.status != "Pending pharmacist approval" or draft.submitted_by == user.id
+
+
+def save_draft(db: Session, user: User, draft: Draft, content: dict[str, Any], row_version: int) -> Draft:
     if draft.status not in EDITABLE_STATUSES:
         raise RuleViolation("Approved or rejected drafts are locked. Create a new revision instead.", 409)
+    if not can_edit(draft, user):
+        raise RuleViolation("This draft is waiting for approval. Approve it, or return it for correction "
+                            "with a note; only the person who submitted it can still edit it.", 409)
     _check_version(draft, row_version)
     draft.content = content
     draft.row_version += 1

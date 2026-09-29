@@ -114,6 +114,20 @@ def test_editing_pending_draft_requires_resubmission(client, db):
     assert _decide(pharm, draft["id"], sha=seen).status_code == 409
 
 
+def test_reviewer_cannot_edit_a_pending_draft(client, db):
+    tech, pharm = client("tech"), client("pharm")
+    _, _, draft = _draft(tech, db)
+    _save(tech, draft["id"])
+    _submit(tech, draft["id"])
+    detail = pharm.get(f"/api/drafts/{draft['id']}").json()
+    assert detail["permissions"]["can_edit"] is False and detail["permissions"]["can_decide"] is True
+    r = pharm.put(f"/api/drafts/{draft['id']}", json={"content": {**CONTENT, "warnings": "Changed"},
+                                                      "row_version": detail["row_version"]})
+    assert r.status_code == 409 and "waiting for approval" in r.json()["detail"]
+    # Still pending, still submitted by the technician, so the pharmacist can decide.
+    assert _decide(pharm, draft["id"]).status_code == 200
+
+
 def test_concurrent_edit_conflict(client, db):
     tech = client("tech")
     _, _, draft = _draft(tech, db)

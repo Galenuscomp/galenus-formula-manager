@@ -5,6 +5,7 @@ import openai
 
 from app.ai.base import ExtractionError, ExtractionResult
 from app.ai.schema import EXTRACTION_INSTRUCTIONS, strict_schema
+from app.ai.translate import TRANSLATION_INSTRUCTIONS, translation_request, translation_schema
 
 
 _NO_CREDIT = {"insufficient_quota", "credit_balance_exhausted"}
@@ -39,27 +40,24 @@ class OpenAIExtractor:
 
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult:
         data_url = "data:application/pdf;base64," + base64.standard_b64encode(pdf).decode("ascii")
+        content = [
+            {"type": "input_file", "filename": filename, "file_data": data_url},
+            {"type": "input_text", "text": "Extract the master formula from this document."},
+        ]
+        return self._structured(EXTRACTION_INSTRUCTIONS, content, "master_formula", strict_schema())
+
+    def translate(self, fields: dict[str, str]) -> dict[str, str]:
+        content = [{"type": "input_text", "text": translation_request(fields)}]
+        return self._structured(TRANSLATION_INSTRUCTIONS, content, "hebrew_translation",
+                                translation_schema(list(fields))).output
+
+    def _structured(self, instructions: str, content: list, name: str, schema: dict) -> ExtractionResult:
         try:
             response = self.client.responses.create(
                 model=self.model,
-                instructions=EXTRACTION_INSTRUCTIONS,
-                input=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "input_file", "filename": filename, "file_data": data_url},
-                            {"type": "input_text", "text": "Extract the master formula from this document."},
-                        ],
-                    }
-                ],
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": "master_formula",
-                        "schema": strict_schema(),
-                        "strict": True,
-                    }
-                },
+                instructions=instructions,
+                input=[{"role": "user", "content": content}],
+                text={"format": {"type": "json_schema", "name": name, "schema": schema, "strict": True}},
             )
         except openai.RateLimitError as exc:
             # OpenAI also answers 429 when the account is out of credit; retrying cannot help then.
@@ -74,7 +72,7 @@ class OpenAIExtractor:
             raise ExtractionError("Could not reach AI provider", retryable=True) from exc
 
         if response.status == "incomplete":
-            raise ExtractionError("Extraction output was incomplete")
+            raise ExtractionError("The AI output was incomplete")
         text = response.output_text
         if not text:
             raise ExtractionError("AI response contained no structured output")

@@ -5,6 +5,7 @@ import anthropic
 
 from app.ai.base import ExtractionError, ExtractionResult
 from app.ai.schema import EXTRACTION_INSTRUCTIONS, strict_schema
+from app.ai.translate import TRANSLATION_INSTRUCTIONS, translation_request, translation_schema
 
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
@@ -30,28 +31,32 @@ class AnthropicExtractor:
             raise ExtractionError("Could not reach Anthropic", retryable=True) from exc
 
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult:
+        content = [
+            {
+                "type": "document",
+                "source": {
+                    "type": "base64",
+                    "media_type": "application/pdf",
+                    "data": base64.standard_b64encode(pdf).decode("ascii"),
+                },
+                "title": filename,
+            },
+            {"type": "text", "text": "Extract the master formula from this document."},
+        ]
+        return self._structured(EXTRACTION_INSTRUCTIONS, content, strict_schema())
+
+    def translate(self, fields: dict[str, str]) -> dict[str, str]:
+        result = self._structured(TRANSLATION_INSTRUCTIONS, [{"type": "text", "text": translation_request(fields)}],
+                                  translation_schema(list(fields)))
+        return result.output
+
+    def _structured(self, system: str, content: list, schema: dict) -> ExtractionResult:
         params = dict(
             model=self.model,
             max_tokens=16000,
-            system=EXTRACTION_INSTRUCTIONS,
-            output_config={"format": {"type": "json_schema", "schema": strict_schema()}},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": base64.standard_b64encode(pdf).decode("ascii"),
-                            },
-                            "title": filename,
-                        },
-                        {"type": "text", "text": "Extract the master formula from this document."},
-                    ],
-                }
-            ],
+            system=system,
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+            messages=[{"role": "user", "content": content}],
         )
         try:
             if self.fallbacks == "default":
@@ -77,7 +82,7 @@ class AnthropicExtractor:
         if response.stop_reason == "refusal":
             raise ExtractionError("The AI model declined to process this document")
         if response.stop_reason == "max_tokens":
-            raise ExtractionError("Document too long: extraction output was truncated")
+            raise ExtractionError("Document too long: the AI output was truncated")
         text = next((b.text for b in response.content if b.type == "text"), None)
         if not text:
             raise ExtractionError("AI response contained no structured output")

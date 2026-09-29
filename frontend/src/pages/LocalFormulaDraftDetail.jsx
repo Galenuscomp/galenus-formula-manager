@@ -267,7 +267,43 @@ export default function LocalFormulaDraftDetail() {
 
       {draft.status === "Pending pharmacist approval" && !perms.can_decide && (
         <div className="mb-6 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-          Waiting for a pharmacist other than the submitter to review and decide.
+          {draft.submitted_by?.id === user?.id
+            ? "Waiting for another pharmacist to approve. You submitted this draft, so you cannot approve it yourself. Editing it now withdraws the submission."
+            : "Waiting for a pharmacist other than the submitter to review and decide."}
+        </div>
+      )}
+
+      {perms.can_decide && (
+        <div className="mb-6 rounded-xl border-2 border-emerald-300 bg-white p-4 sm:p-6 space-y-3">
+          <h2 className="text-sm font-semibold text-emerald-800 uppercase tracking-wide">Awaiting your decision</h2>
+          <p className="text-xs text-slate-500">
+            Review the draft below, then decide here. You are deciding on exactly the content shown (hash{" "}
+            {draft.content_sha256.slice(0, 12)}…). Your name and licence number are recorded from your profile.
+            This is an identified approval record, not a qualified electronic signature.
+          </p>
+          {!user?.licence_number && (
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+              Your user profile has no pharmacist licence number, so you cannot approve yet. Ask the administrator
+              to add it (Users → your name → Pharmacist licence number), then reload this page.
+            </div>
+          )}
+          <Textarea rows={3} value={decisionNotes} onChange={(e) => setDecisionNotes(e.target.value)}
+            placeholder="Decision notes (required to reject or return)" className="text-base" />
+          <div className="grid grid-cols-1 sm:flex gap-2">
+            <Button onClick={() => decide.mutate("approved")} disabled={busy || !user?.licence_number}
+              className="bg-emerald-600 hover:bg-emerald-700 h-11">
+              {decide.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+              Approve Master Formula
+            </Button>
+            <Button onClick={() => decide.mutate("returned")} disabled={busy} variant="outline" className="h-11">
+              <RotateCcw className="w-4 h-4 mr-2" /> Return for correction
+            </Button>
+            <Button onClick={() => decide.mutate("rejected")} disabled={busy} variant="outline"
+              className="border-rose-300 text-rose-700 hover:bg-rose-50 h-11">
+              <XCircle className="w-4 h-4 mr-2" /> Reject
+            </Button>
+          </div>
+          {actionErrors && <ErrorList errors={actionErrors} />}
         </div>
       )}
 
@@ -313,33 +349,6 @@ export default function LocalFormulaDraftDetail() {
         </div>
       )}
 
-      {perms.can_decide && (
-        <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-6 space-y-3">
-          <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">Pharmacist decision</h2>
-          <p className="text-xs text-slate-500">
-            You are deciding on exactly the content shown above (hash {draft.content_sha256.slice(0, 12)}…). Your name
-            and licence number {user?.licence_number || "(missing — ask an admin)"} are recorded from your profile.
-            This is an identified approval record, not a qualified electronic signature.
-          </p>
-          <Textarea rows={3} value={decisionNotes} onChange={(e) => setDecisionNotes(e.target.value)}
-            placeholder="Decision notes (required to reject or return)" className="text-base" />
-          <div className="grid grid-cols-1 sm:flex gap-2">
-            <Button onClick={() => decide.mutate("approved")} disabled={busy}
-              className="bg-emerald-600 hover:bg-emerald-700 h-11">
-              {decide.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-              Approve Master Formula
-            </Button>
-            <Button onClick={() => decide.mutate("returned")} disabled={busy} variant="outline" className="h-11">
-              <RotateCcw className="w-4 h-4 mr-2" /> Return for correction
-            </Button>
-            <Button onClick={() => decide.mutate("rejected")} disabled={busy} variant="outline"
-              className="border-rose-300 text-rose-700 hover:bg-rose-50 h-11">
-              <XCircle className="w-4 h-4 mr-2" /> Reject
-            </Button>
-          </div>
-        </div>
-      )}
-
       {draft.decisions.length > 0 && (
         <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
           <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wide mb-3">Decision history</h2>
@@ -375,7 +384,7 @@ export default function LocalFormulaDraftDetail() {
         </div>
       )}
 
-      {actionErrors && <div className="mb-4"><ErrorList errors={actionErrors} /></div>}
+      {actionErrors && !perms.can_decide && <div className="mb-4"><ErrorList errors={actionErrors} /></div>}
 
       {/* Action bar: one compact row pinned above the bottom navigation on phones */}
       <div className="fixed md:static bottom-[calc(4.5rem+env(safe-area-inset-bottom))] inset-x-0 z-20 bg-white/95 md:bg-transparent backdrop-blur border-t md:border-0 border-slate-200 px-3 py-2 md:p-0">

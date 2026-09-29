@@ -143,7 +143,7 @@ def draft_detail(db: Session, d: Draft, viewer: User) -> dict[str, Any]:
         "revisions": [draft_summary(x) for x in revisions],
         "approval_errors": services.approval_errors(d),
         "permissions": {
-            "can_edit": d.status in services.EDITABLE_STATUSES and viewer.role in ("pharmacist", "technician"),
+            "can_edit": services.can_edit(d, viewer),
             "can_submit": d.status in ("Draft created", "Requires correction")
             and viewer.role in ("pharmacist", "technician"),
             "can_decide": d.status == "Pending pharmacist approval"

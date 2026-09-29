@@ -231,7 +231,7 @@ def get_draft(draft_id: str, user: CurrentUser, db: DB):
 @router.put("/drafts/{draft_id}")
 def save_draft(draft_id: str, body: DraftSaveIn, user: Preparer, db: DB):
     draft = _get(db, Draft, draft_id)
-    services.save_draft(db, draft, body.content.model_dump(), body.row_version)
+    services.save_draft(db, user, draft, body.content.model_dump(), body.row_version)
     audit.record(db, user.id, "draft_saved", "draft", draft.id, row_version=draft.row_version)
     _commit(db)
     return serialize.draft_detail(db, draft, user)
