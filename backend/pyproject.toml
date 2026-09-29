@@ -16,6 +16,7 @@ dependencies = [
   "openai>=1.60",
   "reportlab>=4.2",
   "python-bidi>=0.6",
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
