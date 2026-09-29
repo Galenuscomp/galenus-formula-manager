@@ -19,7 +19,22 @@
 | PostgreSQL | | נתונים; קבצים נשמרים לפי hash בתיקיית `/data` |
 | Caddy | | HTTPS אוטומטי לדומיין שלך |
 
-## הפעלה בשרת (דומיין חדש)
+## התקנה על DigitalOcean (הדרך המהירה)
+
+1. **Create → Droplets**: Ubuntu 24.04, אזור Frankfurt (FRA1), 2GB RAM לפחות.
+2. אצל רשם הדומיין: רשומת `A` של `galenus.info` → ה-IP של ה-Droplet, ו-`CNAME` של `www` → `galenus.info`.
+3. נכנסים ל-Droplet (כפתור **Console** באתר DigitalOcean) ומריצים:
+   ```bash
+   curl -fsSL -o install.sh https://raw.githubusercontent.com/Galenuscomp/galenus-formula-manager/main/deploy/install.sh
+   bash install.sh
+   ```
+   אם הריפו פרטי, הקישור לא יעבוד — במקרה כזה פותחים את `deploy/install.sh` ב-GitHub, לוחצים **Raw**, מעתיקים לקובץ `install.sh` ב-Droplet ומריצים `bash install.sh`.
+4. הסקריפט מתקין Docker וחומת אש, מציג מפתח לקריאה בלבד שמוסיפים ב-GitHub (Settings → Deploy keys),
+   שואל את מפתח ה-Anthropic (לא מוצג על המסך), יוצר סיסמת מסד נתונים אקראית, מעלה את האפליקציה ויוצר מנהל ראשון.
+5. עדכון גרסה בהמשך: `cd /opt/galenus-formula-manager && ./deploy/update.sh`
+
+## הפעלה ידנית בשרת
+
 
 1. שרת Linux עם Docker (פתוחים פורטים 80 ו-443). אצל רשם הדומיין של `galenus.info` מגדירים:
    - רשומת `A` עבור `galenus.info` → כתובת ה-IP של השרת
