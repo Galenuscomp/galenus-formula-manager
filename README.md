@@ -22,7 +22,7 @@
 ## התקנה על DigitalOcean (הדרך המהירה)
 
 1. **Create → Droplets**: Ubuntu 24.04, אזור Frankfurt (FRA1), 2GB RAM לפחות.
-2. אצל רשם הדומיין: רשומת `A` של `galenus.info` → ה-IP של ה-Droplet, ו-`CNAME` של `www` → `galenus.info`.
+2. אצל רשם הדומיין של `galenus.info`: רשומת `A` בשם `master` → ה-IP של ה-Droplet.
 3. נכנסים ל-Droplet (כפתור **Console** באתר DigitalOcean) ומריצים:
    ```bash
    curl -fsSL -o install.sh https://raw.githubusercontent.com/Galenuscomp/galenus-formula-manager/main/deploy/install.sh
@@ -36,10 +36,9 @@
 ## הפעלה ידנית בשרת
 
 
-1. שרת Linux עם Docker (פתוחים פורטים 80 ו-443). אצל רשם הדומיין של `galenus.info` מגדירים:
-   - רשומת `A` עבור `galenus.info` → כתובת ה-IP של השרת
-   - רשומת `A` (או `CNAME` ל-`galenus.info`) עבור `www` → אותו שרת (מופנה אוטומטית ל-`galenus.info`)
-2. `cp .env.example .env` (הדומיין `galenus.info` כבר מוגדר) ומלאו `POSTGRES_PASSWORD` ומפתח AI.
+1. שרת Linux עם Docker (פתוחים פורטים 80 ו-443). אצל רשם הדומיין של `galenus.info` מגדירים
+   רשומת `A` בשם `master` → כתובת ה-IP של השרת (האפליקציה תהיה ב-`master.galenus.info`).
+2. `cp .env.example .env` (הכתובת `master.galenus.info` כבר מוגדרת) ומלאו `POSTGRES_PASSWORD` ומפתח AI.
 3. `docker compose up -d --build`
 4. יצירת מנהל ראשון:
    ```bash

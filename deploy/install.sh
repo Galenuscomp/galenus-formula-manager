@@ -7,7 +7,7 @@ set -euo pipefail
 REPO_SSH="git@github.com:Galenuscomp/galenus-formula-manager.git"
 APP_DIR="/opt/galenus-formula-manager"
 KEY="/root/.ssh/galenus_deploy"
-DOMAIN="${DOMAIN:-galenus.info}"
+DOMAIN="${DOMAIN:-master.galenus.info}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root (sudo -i)"; exit 1; }
 say() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
