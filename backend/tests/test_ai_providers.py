@@ -1,6 +1,8 @@
 import json
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 
 from app.ai.anthropic_provider import AnthropicExtractor
@@ -61,6 +63,28 @@ def test_anthropic_refusal_and_truncation(monkeypatch):
         monkeypatch.setattr(ex.client.messages, "create", lambda **kw: _anthropic_response(stop_reason=reason))
         with pytest.raises(ExtractionError):
             ex.extract(PDF, "f.pdf")
+
+
+def _openai_429(body):
+    response = httpx.Response(429, request=httpx.Request("POST", "https://api.openai.com/v1/responses"))
+    return openai.RateLimitError("429", response=response, body=body)
+
+
+@pytest.mark.parametrize("body, retryable, text", [
+    ({"type": "insufficient_quota", "code": "credit_balance_exhausted", "message": "no credits"}, False, "no credit"),
+    ({"type": "requests", "code": "rate_limit_exceeded", "message": "slow down"}, True, "rate limit"),
+])
+def test_openai_out_of_credit_is_not_retried(monkeypatch, body, retryable, text):
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    ex = OpenAIExtractor("some-model")
+
+    def create(**kw):
+        raise _openai_429(body)
+
+    monkeypatch.setattr(ex.client.responses, "create", create)
+    with pytest.raises(ExtractionError) as info:
+        ex.extract(PDF, "f.pdf")
+    assert info.value.retryable is retryable and text in str(info.value)
 
 
 def test_openai_request_shape(monkeypatch):

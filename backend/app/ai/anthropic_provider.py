@@ -63,6 +63,11 @@ class AnthropicExtractor:
         except anthropic.RateLimitError as exc:
             raise ExtractionError("AI provider rate limit reached", retryable=True) from exc
         except anthropic.APIStatusError as exc:
+            if "credit balance" in str(exc).lower():
+                raise ExtractionError(
+                    "The Anthropic account has no credit left. Add credit at console.anthropic.com "
+                    "(Billing), then run the extraction again."
+                ) from exc
             raise ExtractionError(
                 f"AI provider error {exc.status_code}", retryable=exc.status_code >= 500
             ) from exc

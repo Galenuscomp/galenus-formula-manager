@@ -7,6 +7,17 @@ from app.ai.base import ExtractionError, ExtractionResult
 from app.ai.schema import EXTRACTION_INSTRUCTIONS, strict_schema
 
 
+_NO_CREDIT = {"insufficient_quota", "credit_balance_exhausted"}
+NO_CREDIT_MESSAGE = ("The OpenAI account has no credit left. Add credit at platform.openai.com "
+                     "(Settings > Billing), then run the extraction again.")
+
+
+def _error_field(exc: openai.APIStatusError, name: str) -> str | None:
+    body = exc.body if isinstance(exc.body, dict) else {}
+    err = body.get("error", body)
+    return err.get(name) if isinstance(err, dict) else None
+
+
 class OpenAIExtractor:
     provider = "openai"
 
@@ -51,6 +62,9 @@ class OpenAIExtractor:
                 },
             )
         except openai.RateLimitError as exc:
+            # OpenAI also answers 429 when the account is out of credit; retrying cannot help then.
+            if _error_field(exc, "type") == "insufficient_quota" or _error_field(exc, "code") in _NO_CREDIT:
+                raise ExtractionError(NO_CREDIT_MESSAGE) from exc
             raise ExtractionError("AI provider rate limit reached", retryable=True) from exc
         except openai.APIStatusError as exc:
             raise ExtractionError(
