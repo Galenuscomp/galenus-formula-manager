@@ -23,10 +23,12 @@ export function AuthProvider({ children }) {
     return me;
   };
 
+  // Callers then navigate to /login. ["me"] is set to null rather than removed:
+  // clear() would detach the query this provider observes, leaving the old user shown.
   const logout = async () => {
     await api.post("/api/auth/logout").catch(() => {});
-    queryClient.clear();
     queryClient.setQueryData(["me"], null);
+    queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
   };
 
   const value = {

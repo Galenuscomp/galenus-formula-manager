@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FlaskConical, Home, PlusCircle, ListChecks, LogOut, Library, Users, UserCircle } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 import { cn } from "@/lib/utils";
@@ -9,7 +9,12 @@ const ROLE_LABELS = { admin: "Administrator", pharmacist: "Pharmacist", technici
 
 export default function Layout() {
   const location = useLocation();
-  const { user, logout, canPrepare, isAdmin } = useAuth();
+  const navigate = useNavigate();
+  const { user, logout: signOut, canPrepare, isAdmin } = useAuth();
+  const logout = async () => {
+    await signOut();
+    navigate("/login", { replace: true });
+  };
 
   const navItems = [
     { label: "Dashboard", short: "Home", path: "/", icon: Home },

@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import { useMutation } from "@tanstack/react-query";
 import { KeyRound, UserCircle } from "lucide-react";
 import { api } from "@/api/client";
@@ -13,13 +14,18 @@ import { useAuth } from "@/lib/AuthContext";
 
 export default function Account() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [form, setForm] = React.useState({ current_password: "", new_password: "", confirm: "" });
   const [errors, setErrors] = React.useState(null);
   const change = useMutation({
     mutationFn: () => api.post("/api/auth/password", {
       current_password: form.current_password, new_password: form.new_password,
     }),
-    onSuccess: () => logout(),
+    // Changing the password ends every session, this one included.
+    onSuccess: async () => {
+      await logout();
+      navigate("/login", { replace: true });
+    },
     onError: (err) => setErrors(err.errors?.length ? err.errors : [err.message]),
   });
 
