@@ -12,7 +12,8 @@ import { FORMULA_SOURCES } from "@/lib/sources";
 
 const EMPTY = { source_name: "", title: "", source_formula_id: "", source_url: "", match_level: "", notes: "" };
 
-export default function AddSourceFormulaDialog({ open, onOpenChange, requestId, onAdded, maxMb = 25 }) {
+// `initial` pre-fills the fields, e.g. from a catalog formula.
+export default function AddSourceFormulaDialog({ open, onOpenChange, requestId, onAdded, maxMb = 25, initial }) {
   const [form, setForm] = React.useState(EMPTY);
   const [file, setFile] = React.useState(null);
   const [submitting, setSubmitting] = React.useState(false);
@@ -21,11 +22,11 @@ export default function AddSourceFormulaDialog({ open, onOpenChange, requestId, 
 
   React.useEffect(() => {
     if (open) {
-      setForm(EMPTY);
+      setForm({ ...EMPTY, ...initial });
       setFile(null);
       setError(null);
     }
-  }, [open]);
+  }, [open, initial]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

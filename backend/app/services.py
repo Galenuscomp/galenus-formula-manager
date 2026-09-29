@@ -70,6 +70,7 @@ def create_request(db: Session, user: User, data: dict[str, Any]) -> SearchReque
         notes=(data.get("notes") or "").strip(),
         exact_match_only=bool(data.get("exact_match_only")),
         sources=sources,
+        catalog_ref=data.get("catalog_ref"),
         created_by=user.id,
     )
     db.add(req)

@@ -3,9 +3,9 @@ import { useMutation } from "@tanstack/react-query";
 import { KeyRound, UserCircle } from "lucide-react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import AISettingsCard from "@/components/AISettingsCard";
+import PasswordInput from "@/components/PasswordInput";
 import { ErrorList } from "@/components/PageState";
 import PasswordRules from "@/components/PasswordRules";
 import { passwordRules } from "@/lib/passwordRules";
@@ -53,7 +53,7 @@ export default function Account() {
         ].map(([k, label, ac]) => (
           <div key={k} className="space-y-2">
             <Label htmlFor={k}>{label}</Label>
-            <Input id={k} type="password" autoComplete={ac} required value={form[k]}
+            <PasswordInput id={k} autoComplete={ac} required value={form[k]}
               onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} className="h-11 text-base" />
             {k === "new_password" && <PasswordRules password={form.new_password} email={user.email} />}
           </div>

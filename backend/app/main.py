@@ -6,7 +6,7 @@ from fastapi.exceptions import HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import ai_settings, auth, formulas, users
+from app.api import ai_settings, auth, catalog, formulas, users
 from app.config import get_settings
 from app.services import RuleViolation
 
@@ -29,6 +29,7 @@ app = FastAPI(title="Formula Manager", lifespan=lifespan, docs_url=None, redoc_u
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(ai_settings.router)
+app.include_router(catalog.router)
 app.include_router(formulas.router)
 
 

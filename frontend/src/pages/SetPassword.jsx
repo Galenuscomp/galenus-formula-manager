@@ -4,9 +4,9 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, FlaskConical, Loader2 } from "lucide-react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ErrorList } from "@/components/PageState";
+import PasswordInput from "@/components/PasswordInput";
 import PasswordRules from "@/components/PasswordRules";
 import { passwordOk } from "@/lib/passwordRules";
 
@@ -65,13 +65,13 @@ export default function SetPassword() {
         <input type="email" autoComplete="username" value={info.email} readOnly hidden />
         <div className="space-y-2">
           <Label htmlFor="new-password">New password</Label>
-          <Input id="new-password" type="password" autoComplete="new-password" autoFocus required value={form.password}
+          <PasswordInput id="new-password" autoComplete="new-password" autoFocus required value={form.password}
             onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} className="h-12 text-base" />
           <PasswordRules password={form.password} email={info.email} />
         </div>
         <div className="space-y-2">
           <Label htmlFor="confirm-password">Repeat password</Label>
-          <Input id="confirm-password" type="password" autoComplete="new-password" required value={form.confirm}
+          <PasswordInput id="confirm-password" autoComplete="new-password" required value={form.confirm}
             onChange={(e) => setForm((f) => ({ ...f, confirm: e.target.value }))} className="h-12 text-base" />
         </div>
         <ErrorList errors={errors} />

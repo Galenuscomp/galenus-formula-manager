@@ -1,14 +1,16 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Search, Check, Zap, Upload } from "lucide-react";
+import { ArrowLeft, BookOpen, Search, Check, Zap, Upload, X } from "lucide-react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import CatalogAutocomplete from "@/components/CatalogAutocomplete";
 import { ErrorList } from "@/components/PageState";
+import SourceLabel from "@/components/SourceLabel";
 import { FORMULA_SOURCES, DEFAULT_SOURCES } from "@/lib/sources";
 import { cn } from "@/lib/utils";
 
@@ -30,8 +32,19 @@ export default function NewFormulaSearch() {
     notes: "",
     exact_match_only: false,
     sources: DEFAULT_SOURCES,
+    catalog_ref: null,
   });
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+  // A catalog pick fills the fields it could parse; the user can still edit them.
+  const pickCatalog = (e) => setForm((f) => ({
+    ...f,
+    active_ingredient: e.active_ingredient || e.title,
+    strength: e.strength || f.strength,
+    dosage_form: e.dosage_form || f.dosage_form,
+    final_quantity: e.final_quantity || f.final_quantity,
+    sources: f.sources.includes(e.source) ? f.sources : [...f.sources, e.source],
+    catalog_ref: { source: e.source, formula_id: e.formula_id, title: e.title, url: e.url },
+  }));
   const toggleSource = (source) =>
     update("sources", form.sources.includes(source) ? form.sources.filter((s) => s !== source) : [...form.sources, source]);
 
@@ -78,8 +91,10 @@ export default function NewFormulaSearch() {
             <Label htmlFor="active_ingredient">
               Active ingredient <span className="text-rose-500">*</span>
             </Label>
-            <Input id="active_ingredient" placeholder="e.g. Metronidazole" value={form.active_ingredient}
-              onChange={(e) => update("active_ingredient", e.target.value)} required className="h-11 text-base" />
+            <CatalogAutocomplete id="active_ingredient" placeholder="Type a name, e.g. Metronidazole"
+              value={form.active_ingredient} onChange={(v) => update("active_ingredient", v)} onPick={pickCatalog}
+              required className="h-11 text-base" />
+            <p className="text-xs text-slate-400">Suggestions come from the MEDISCA and CompoundingToday catalogs.</p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="strength">Strength</Label>
@@ -100,6 +115,22 @@ export default function NewFormulaSearch() {
               onChange={(e) => update("final_quantity", e.target.value)} className="h-11 text-base" />
           </div>
         </div>
+
+        {form.catalog_ref && (
+          <div className="flex items-start justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50/60 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-teal-800 flex items-center gap-2">
+                <BookOpen className="w-3.5 h-3.5" /> From catalog
+                <SourceLabel source={form.catalog_ref.source} />
+                <span className="font-mono">{form.catalog_ref.formula_id}</span>
+              </p>
+              <p className="text-sm text-slate-800 mt-1">{form.catalog_ref.title}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Fields above were filled from the catalog title. Check them before creating.</p>
+            </div>
+            <button type="button" onClick={() => update("catalog_ref", null)} aria-label="Remove catalog formula"
+              className="p-1 text-slate-400 hover:text-slate-700"><X className="w-4 h-4" /></button>
+          </div>
+        )}
 
         <div className="space-y-3">
           <div>

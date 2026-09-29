@@ -4,6 +4,7 @@ import { FlaskConical, Loader2, Lock, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import PasswordInput from "@/components/PasswordInput";
 import { useAuth } from "@/lib/AuthContext";
 
 export default function Login() {
@@ -56,8 +57,8 @@ export default function Login() {
           <div className="space-y-2">
             <Label htmlFor="password">Password</Label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" aria-hidden="true" />
-              <Input id="password" type="password" autoComplete="current-password" value={password}
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 z-10" aria-hidden="true" />
+              <PasswordInput id="password" autoComplete="current-password" value={password}
                 onChange={(e) => setPassword(e.target.value)} className="pl-10 h-12 text-base" required />
             </div>
           </div>

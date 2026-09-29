@@ -96,6 +96,8 @@ class SearchRequest(TimestampMixin, Base):
     notes: Mapped[str] = mapped_column(Text, default="")
     exact_match_only: Mapped[bool] = mapped_column(Boolean, default=False)
     sources: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Copy of the catalog formula the request was started from: {source, formula_id, title, url}.
+    catalog_ref: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     created_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
     # Cached summary refreshed by services.refresh_request_status in the same
     # transaction as every change that affects it; used for fast list filtering.
@@ -215,6 +217,28 @@ class Decision(TimestampMixin, Base):
     content_sha256: Mapped[str] = mapped_column(String(64))
     pdf_sha256: Mapped[str | None] = mapped_column(String(64))
     pdf_file: Mapped[str | None] = mapped_column(String(300))
+
+
+class CatalogEntry(Base):
+    """One formula listed in a source's catalog (app.catalog). Re-importing a
+    source replaces its rows; requests keep a copy of the entry they used."""
+
+    __tablename__ = "catalog_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(40), index=True)
+    source_formula_id: Mapped[str] = mapped_column(String(64), default="")
+    title: Mapped[str] = mapped_column(String(1000))
+    route: Mapped[str] = mapped_column(String(100), default="")
+    base: Mapped[str] = mapped_column(String(500), default="")
+    url: Mapped[str] = mapped_column(String(2000), default="")
+    # Parsed from the title to prefill a new request.
+    active_ingredient: Mapped[str] = mapped_column(String(1000), default="")
+    strength: Mapped[str] = mapped_column(String(500), default="")
+    dosage_form: Mapped[str] = mapped_column(String(200), default="")
+    final_quantity: Mapped[str] = mapped_column(String(200), default="")
+    search_text: Mapped[str] = mapped_column(Text)
+    imported_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow)
 
 
 class AuditEvent(Base):

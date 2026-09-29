@@ -3,6 +3,7 @@
   python -m app.cli migrate
   python -m app.cli create-user --email a@b.c --name "Full Name" --role admin
   python -m app.cli password-link --email a@b.c   # one-time link to choose a new password
+  python -m app.cli import-catalog - < MEDISCA_formula_catalog.csv   # or CompoundingToday
 """
 
 import argparse
@@ -61,6 +62,17 @@ def password_link(email: str) -> None:
     print(f"Open within {'3 days' if link['purpose'] == 'invite' else '24 hours'}: {origin}{link['path']}")
 
 
+def import_catalog(path: str) -> None:
+    from app import catalog
+    from app.db import session_factory
+
+    data = sys.stdin.buffer.read() if path == "-" else Path(path).read_bytes()
+    with session_factory()() as db:
+        result = catalog.import_csv(db, data)
+        db.commit()
+    print(f"Imported {result['count']} {result['source']} formulas")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -72,11 +84,15 @@ def main() -> None:
     cu.add_argument("--licence")
     pl = sub.add_parser("password-link")
     pl.add_argument("--email", required=True)
+    ic = sub.add_parser("import-catalog")
+    ic.add_argument("path", help="MEDISCA or CompoundingToday catalog CSV, or - for stdin")
     args = parser.parse_args()
     if args.cmd == "migrate":
         migrate()
     elif args.cmd == "password-link":
         password_link(args.email)
+    elif args.cmd == "import-catalog":
+        import_catalog(args.path)
     else:
         create_user(args.email, args.name, args.role, args.licence)
 

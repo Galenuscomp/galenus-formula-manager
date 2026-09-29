@@ -29,6 +29,7 @@ def request_summary(r: SearchRequest) -> dict[str, Any]:
         "notes": r.notes,
         "exact_match_only": r.exact_match_only,
         "sources": r.sources,
+        "catalog_ref": r.catalog_ref,
         "status": r.status,
         "created_at": iso(r.created_at),
     }

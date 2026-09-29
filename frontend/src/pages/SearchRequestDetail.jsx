@@ -6,6 +6,7 @@ import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import AddSourceFormulaDialog from "@/components/AddSourceFormulaDialog";
+import CatalogMatches from "@/components/CatalogMatches";
 import FormulaResultCard from "@/components/FormulaResultCard";
 import FormulaStatusBadge from "@/components/FormulaStatusBadge";
 import SourceLabel from "@/components/SourceLabel";
@@ -23,6 +24,8 @@ export default function SearchRequestDetail() {
   const { canPrepare } = useAuth();
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [uploadInitial, setUploadInitial] = React.useState(undefined);
+  const openUpload = (initial) => { setUploadInitial(initial); setDialogOpen(true); };
   const key = ["request", id];
 
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: () => api.get("/api/config"), staleTime: Infinity });
@@ -120,6 +123,8 @@ export default function SearchRequestDetail() {
         </section>
       )}
 
+      <CatalogMatches request={request} onAddPdf={canPrepare ? (initial) => openUpload(initial) : null} />
+
       {(request.jobs.length > 0 || manualSources.length > 0) && (
         <section className="mb-6">
           <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wide mb-3">Source search</h2>
@@ -136,7 +141,7 @@ export default function SearchRequestDetail() {
                   <span className="text-xs text-slate-500">Manual — upload the PDF</span>
                 </div>
                 {canPrepare && (
-                  <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)}>
+                  <Button variant="outline" size="sm" onClick={() => openUpload({ source_name: s })}>
                     <Upload className="w-3.5 h-3.5 mr-1" /> Upload
                   </Button>
                 )}
@@ -153,7 +158,7 @@ export default function SearchRequestDetail() {
             <p className="text-sm text-slate-500">{documents.length} source document{documents.length === 1 ? "" : "s"}</p>
           </div>
           {canPrepare && (
-            <Button variant="outline" onClick={() => setDialogOpen(true)} className="shrink-0">
+            <Button variant="outline" onClick={() => openUpload(undefined)} className="shrink-0">
               <PlusCircle className="w-4 h-4 sm:mr-2" />
               <span className="hidden sm:inline">Add source formula</span>
             </Button>
@@ -205,7 +210,7 @@ export default function SearchRequestDetail() {
         </div>
       )}
 
-      <AddSourceFormulaDialog open={dialogOpen} onOpenChange={setDialogOpen} requestId={id}
+      <AddSourceFormulaDialog open={dialogOpen} onOpenChange={setDialogOpen} requestId={id} initial={uploadInitial}
         maxMb={config?.max_upload_mb} onAdded={() => { invalidate(); toast({ title: "Source formula added" }); }} />
     </div>
   );

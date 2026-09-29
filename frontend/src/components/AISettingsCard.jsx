@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import { ErrorList, LoadingBlock } from "@/components/PageState";
+import PasswordInput from "@/components/PasswordInput";
 
 const PROVIDER_NAMES = { openai: "OpenAI", anthropic: "Anthropic", fake: "Demo extractor" };
 
@@ -86,7 +87,7 @@ export default function AISettingsCard() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="ai-key">API key</Label>
-            <Input id="ai-key" type="password" autoComplete="off" required={!keySaved}
+            <PasswordInput id="ai-key" autoComplete="off" required={!keySaved}
               placeholder={keySaved ? `Saved key ending in ${data.key_last4} — leave empty to keep it` : ""}
               value={form.api_key} onChange={(e) => update("api_key", e.target.value)} className="h-11 text-base" />
             <p className="text-xs text-slate-400">

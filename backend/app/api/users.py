@@ -55,6 +55,10 @@ def update_user(user_id: str, body: UserUpdateIn, actor: Admin, db: DB):
     changes = body.model_dump(exclude_unset=True)
     if user.id == actor.id and (changes.get("role", "admin") != "admin" or changes.get("is_active") is False):
         raise HTTPException(400, "You cannot demote or disable your own account")
+    if "email" in changes:
+        changes["email"] = changes["email"].strip().lower()
+        if changes["email"] != user.email and db.scalar(select(User).where(User.email == changes["email"])):
+            raise HTTPException(409, "A user with this e-mail already exists")
     for key, value in changes.items():
         if key == "password":
             passwords.set_password(db, user, value)
@@ -66,7 +70,7 @@ def update_user(user_id: str, body: UserUpdateIn, actor: Admin, db: DB):
         passwords.revoke_sessions(db, user)
     audit.record(db, actor.id, "user_updated", "user", user.id, fields=sorted(k for k in changes if k != "password"))
     db.commit()
-    return serialize.user(user)
+    return {**serialize.user(user), "has_password": passwords.has_password(user)}
 
 
 @router.post("/{user_id}/password-link")

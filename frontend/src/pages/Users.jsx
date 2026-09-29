@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { ErrorBlock, ErrorList, LoadingBlock } from "@/components/PageState";
+import CatalogImportCard from "@/components/CatalogImportCard";
 import PasswordLinkDialog from "@/components/PasswordLinkDialog";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -32,7 +33,7 @@ function UserDialog({ open, onOpenChange, editing, onSaved, onLink }) {
     if (open) {
       setErrors(null);
       setForm(editing
-        ? { full_name: editing.full_name, role: editing.role, licence_number: editing.licence_number || "" }
+        ? { email: editing.email, full_name: editing.full_name, role: editing.role, licence_number: editing.licence_number || "" }
         : { email: "", full_name: "", role: "technician", licence_number: "" });
     }
   }, [open, editing]);
@@ -40,7 +41,10 @@ function UserDialog({ open, onOpenChange, editing, onSaved, onLink }) {
   const onError = (err) => setErrors(err.errors?.length ? err.errors : [err.message]);
 
   const mutation = useMutation({
-    mutationFn: () => (editing ? api.patch(`/api/users/${editing.id}`, form) : api.post("/api/users", form)),
+    mutationFn: () => {
+      const body = { ...form, email: (form.email || "").trim() };
+      return editing ? api.patch(`/api/users/${editing.id}`, body) : api.post("/api/users", body);
+    },
     onSuccess: (saved) => {
       onSaved();
       onOpenChange(false);
@@ -57,14 +61,15 @@ function UserDialog({ open, onOpenChange, editing, onSaved, onLink }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg max-h-[92vh] overflow-y-auto">
-        <DialogHeader><DialogTitle>{editing ? `Edit ${editing.email}` : "Add user"}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editing ? `Edit ${editing.full_name}` : "Add user"}</DialogTitle></DialogHeader>
         <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); mutation.mutate(); }}>
-          {!editing && (
-            <div className="space-y-2">
-              <Label htmlFor="u-email">E-mail</Label>
-              <Input id="u-email" type="email" required value={form.email || ""} onChange={(e) => update("email", e.target.value)} className="h-11 text-base" />
-            </div>
-          )}
+          <div className="space-y-2">
+            <Label htmlFor="u-email">E-mail</Label>
+            <Input id="u-email" type="email" required value={form.email || ""} onChange={(e) => update("email", e.target.value)} className="h-11 text-base" />
+            {editing && form.email?.trim().toLowerCase() !== editing.email && (
+              <p className="text-xs text-amber-700">The user signs in with the new e-mail from now on. Let them know.</p>
+            )}
+          </div>
           <div className="space-y-2">
             <Label htmlFor="u-name">Full name</Label>
             <Input id="u-name" required value={form.full_name || ""} onChange={(e) => update("full_name", e.target.value)} className="h-11 text-base" />
@@ -162,6 +167,7 @@ export default function Users() {
           ))}
         </ul>
       )}
+      <CatalogImportCard />
       <UserDialog open={dialog.open} editing={dialog.editing}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
         onSaved={() => queryClient.invalidateQueries({ queryKey: ["users"] })}

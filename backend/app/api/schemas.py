@@ -48,11 +48,19 @@ class UserCreateIn(Strict):
 
 
 class UserUpdateIn(Strict):
+    email: str | None = Field(default=None, max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
     role: Literal["admin", "pharmacist", "technician"] | None = None
     licence_number: str | None = Field(default=None, max_length=64)
     is_active: bool | None = None
     password: str | None = Field(default=None, max_length=200)
+
+
+class CatalogRefIn(Strict):
+    source: str = Field(max_length=40)
+    formula_id: str = Field(default="", max_length=64)
+    title: str = Field(max_length=1000)
+    url: str = Field(default="", max_length=2000, pattern=r"^(https://.*)?$")
 
 
 class RequestCreateIn(Strict):
@@ -63,6 +71,8 @@ class RequestCreateIn(Strict):
     notes: str = Field(default="", max_length=5000)
     exact_match_only: bool = False
     sources: list[str] = Field(default_factory=list, max_length=20)
+    # The catalog formula picked in the form, if any.
+    catalog_ref: CatalogRefIn | None = None
 
 
 class RetrySearchIn(Strict):
