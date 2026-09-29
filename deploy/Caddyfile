@@ -4,8 +4,13 @@
 		max_size 30MB
 	}
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		# No includeSubDomains: other galenus.info subdomains may not serve HTTPS.
+		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
 	reverse_proxy app:8000
+}
+
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
 }

@@ -21,8 +21,10 @@
 
 ## הפעלה בשרת (דומיין חדש)
 
-1. שרת Linux עם Docker. רשומת DNS מסוג A של הדומיין מצביעה לשרת.
-2. `cp .env.example .env` ומלאו `DOMAIN`, `POSTGRES_PASSWORD`, ומפתח AI.
+1. שרת Linux עם Docker (פתוחים פורטים 80 ו-443). אצל רשם הדומיין של `galenus.info` מגדירים:
+   - רשומת `A` עבור `galenus.info` → כתובת ה-IP של השרת
+   - רשומת `A` (או `CNAME` ל-`galenus.info`) עבור `www` → אותו שרת (מופנה אוטומטית ל-`galenus.info`)
+2. `cp .env.example .env` (הדומיין `galenus.info` כבר מוגדר) ומלאו `POSTGRES_PASSWORD` ומפתח AI.
 3. `docker compose up -d --build`
 4. יצירת מנהל ראשון:
    ```bash
