@@ -2,24 +2,23 @@
 browser and downloads a formula PDF.
 
 Ported from the earlier formula-automation-worker (Node/Playwright), which
-worked against the live site. CompoundingToday allows one session per account
-("Account in Use"), so:
+worked against the live site. Browsing and searching compoundingtoday.com are
+open to everyone; only the PDF asks to sign in (Login.cfm?DEST=...).
+CompoundingToday allows one session per account ("Account in Use"), so:
 - the browser session is saved and reused between runs (fewer logins);
 - every run holds a file lock, so the worker and a "Test login" never overlap;
 - "Account in Use" starts a 5-minute cooldown shared by all processes.
 """
 
-import fcntl
 import json
 import re
 import time
-from contextlib import contextmanager
-from pathlib import Path
 from urllib.parse import urljoin
 
-from app.config import get_settings
+from app.search import browser
 from app.search.automation import Credentials, FoundDocument, SearchCooldown, SearchFailed, SearchNoResults
 
+SOURCE = "CompoundingToday"
 BASE_URL = "https://compoundingtoday.com"
 FORMULAS_URL = f"{BASE_URL}/formulation/Formula.cfm"
 COOLDOWN_SECONDS = 5 * 60
@@ -29,32 +28,8 @@ LOGIN_FORM = 'form[name="frmLogin2"], form:has(input[name="strPassword"])'
 CHECK_FORMULA_ID = "233"
 
 
-def _dir() -> Path:
-    path = get_settings().data_dir / "sessions"
-    path.mkdir(parents=True, exist_ok=True)
-    return path
-
-
-def _state_path() -> Path:
-    return _dir() / "compoundingtoday-state.json"
-
-
-def _cooldown_path() -> Path:
-    return _dir() / "compoundingtoday-cooldown.json"
-
-
-@contextmanager
-def _exclusive(wait: bool):
-    with open(_dir() / "compoundingtoday.lock", "w") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
-        except BlockingIOError as exc:
-            raise SearchFailed("A CompoundingToday download is running right now. Try again in a minute.",
-                               retryable=True) from exc
-        try:
-            yield
-        finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+def _cooldown_path():
+    return browser.session_dir() / "compoundingtoday-cooldown.json"
 
 
 def _check_cooldown() -> None:
@@ -74,15 +49,8 @@ def _is_login_url(url: str) -> bool:
     return bool(re.search(r"/login\.cfm", url, re.I))
 
 
-def _summary(page) -> str:
-    try:
-        return re.sub(r"\s+", " ", page.locator("body").inner_text()).strip()[:600]
-    except Exception:
-        return ""
-
-
 def _account_in_use(page) -> bool:
-    return "account in use" in _summary(page).lower()
+    return "account in use" in browser.page_text(page).lower()
 
 
 def _submit_login(page, form, creds: Credentials) -> None:
@@ -100,7 +68,6 @@ def _submit_login(page, form, creds: Credentials) -> None:
 
 
 def _keyword_search(page, active_ingredient: str) -> list[dict]:
-    # Browsing and searching are open to everyone; only the PDF needs a login.
     page.goto(FORMULAS_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
     form = page.locator('form[name="frmKeywordSearch"]')
     if form.count() == 0:
@@ -150,44 +117,21 @@ def _download_pdf(page, context, creds: Credentials, pdf_url: str, referer: str)
     if pdf:
         return pdf
     if _is_login_url(page.url) or page.locator(LOGIN_FORM).count():
-        _state_path().unlink(missing_ok=True)
+        browser.forget_session(SOURCE)
         raise SearchFailed("CompoundingToday did not accept the login. Check the username and password "
                            "under Users > Source accounts, and that the membership is active.", retryable=False)
     raise SearchFailed("CompoundingToday did not return a PDF for this formula", retryable=True)
-
-
-@contextmanager
-def _browser():
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
-        try:
-            state = _state_path()
-            try:
-                context = browser.new_context(accept_downloads=True,
-                                              storage_state=str(state) if state.exists() else None)
-            except Exception:
-                state.unlink(missing_ok=True)
-                context = browser.new_context(accept_downloads=True)
-            yield context
-        finally:
-            browser.close()
-
-
-def _safe_filename(value: str) -> str:
-    return re.sub(r"\s+", " ", re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", value)).strip()[:140]
 
 
 def check_login(creds: Credentials) -> None:
     """Sign in and confirm a formula PDF really comes back (browsing works without a login)."""
     _check_cooldown()
     try:
-        with _exclusive(wait=False), _browser() as context:
+        with browser.exclusive(SOURCE, wait=False), browser.browser_context(SOURCE) as context:
             info = f"{BASE_URL}/formulation/FormulaInfo.cfm?ID={CHECK_FORMULA_ID}"
             pdf_url = f"{BASE_URL}/formulation/FormulaPDF.cfm?FormulaID={CHECK_FORMULA_ID}"
             _download_pdf(context.new_page(), context, creds, pdf_url, info)
-            context.storage_state(path=str(_state_path()))
+            browser.save_session(context, SOURCE)
     except (SearchCooldown, SearchFailed):
         raise
     except Exception as exc:
@@ -201,7 +145,7 @@ def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", t
         raise SearchFailed(f"Invalid CompoundingToday formula ID: {formula_id}", retryable=False)
     _check_cooldown()
     try:
-        with _exclusive(wait=True), _browser() as context:
+        with browser.exclusive(SOURCE, wait=True), browser.browser_context(SOURCE) as context:
             page = context.new_page()
             if formula_id:
                 selected = {"id": formula_id, "title": title.strip(),
@@ -220,12 +164,11 @@ def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", t
                 raise SearchFailed("CompoundingToday formula page has no PDF link", retryable=False)
             pdf_url = urljoin(page.url, link.get_attribute("href") or "")
             pdf = _download_pdf(page, context, creds, pdf_url, selected["url"])
-            context.storage_state(path=str(_state_path()))
+            browser.save_session(context, SOURCE)
     except (SearchCooldown, SearchFailed, SearchNoResults):
         raise
     except Exception as exc:  # browser/network errors: worth another try
         raise SearchFailed(f"CompoundingToday download failed: {str(exc).splitlines()[0][:200]}", retryable=True) from exc
     name = selected["title"] or f"CompoundingToday Formula {selected['id']}"
-    return FoundDocument(pdf=pdf, filename=f"{selected['id']}_{_safe_filename(name)}.pdf"[:300],
-                         source_name="CompoundingToday", source_formula_id=selected["id"],
-                         title=name[:500], url=selected["url"])
+    return FoundDocument(pdf=pdf, filename=f"{selected['id']}_{browser.safe_filename(name)}.pdf"[:300],
+                         source_name=SOURCE, source_formula_id=selected["id"], title=name[:500], url=selected["url"])

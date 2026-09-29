@@ -16,7 +16,7 @@ from app.ai.schema import SCHEMA_VERSION
 from app.config import get_settings
 from app.db import utcnow
 from app.models import Decision, Draft, Extraction, Job, SearchRequest, SourceDocument, User, UserAISettings
-from app.search.automation import AUTOMATED_SOURCES, configured_sources
+from app.search.automation import AUTOMATED_SOURCES, NEEDS_FORMULA_ID, configured_sources
 
 
 class RuleViolation(Exception):
@@ -77,8 +77,9 @@ def create_request(db: Session, user: User, data: dict[str, Any]) -> SearchReque
     db.flush()
     automated = configured_sources(db)
     for source in sources:
-        if source in automated:
-            enqueue(db, Job(kind="search", request_id=req.id, source_name=source, payload=_catalog_payload(req, source)))
+        payload = _catalog_payload(req, source)
+        if source in automated and (payload or source not in NEEDS_FORMULA_ID):
+            enqueue(db, Job(kind="search", request_id=req.id, source_name=source, payload=payload))
     refresh_request_status(db, req.id)
     return req
 
@@ -129,6 +130,8 @@ def _check_can_download(db: Session, req: SearchRequest, source_name: str, formu
         raise RuleViolation(f"{source_name} has no automated download; upload the PDF instead.")
     if source_name not in configured_sources(db):
         raise RuleViolation(f"No {source_name} login is saved. An admin adds it under Users > Source accounts.")
+    if source_name in NEEDS_FORMULA_ID and not formula_id:
+        raise RuleViolation(f"Pick the {source_name} formula from the catalog matches on this request to download it.")
     for j in req.jobs:
         if j.kind == "search" and j.source_name == source_name and j.status in ("Queued", "Running") \
                 and (j.payload or {}).get("formula_id", "") == formula_id:

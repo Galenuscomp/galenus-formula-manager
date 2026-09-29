@@ -15,9 +15,11 @@ from app import crypto
 from app.models import SourceAccount
 
 # Sources with a download adapter. Every other source is manual upload.
-AUTOMATED_SOURCES = {"CompoundingToday"}
-# Sources whose login the admin can store (MEDISCA's download comes later).
+AUTOMATED_SOURCES = {"CompoundingToday", "MEDISCA"}
+# Sources whose login the admin can store.
 ACCOUNT_SOURCES = ("CompoundingToday", "MEDISCA")
+# Sources that download only an exact catalog formula (no keyword search on their site).
+NEEDS_FORMULA_ID = {"MEDISCA"}
 
 
 class SearchCooldown(Exception):
@@ -73,15 +75,20 @@ def fetch(db: Session, source: str, *, active_ingredient: str, strength: str = "
     if source not in AUTOMATED_SOURCES:
         raise SearchFailed(f"{source} has no automated download; upload the PDF instead.", retryable=False)
     creds = credentials(db, source)
-    from app.search import compounding_today
-
-    return compounding_today.fetch(creds, active_ingredient=active_ingredient, formula_id=formula_id, title=title)
+    return _adapter(source).fetch(creds, active_ingredient=active_ingredient, formula_id=formula_id, title=title)
 
 
 def check_login(db: Session, source: str) -> None:
     if source not in AUTOMATED_SOURCES:
-        raise SearchFailed(f"Automated download from {source} is not available yet.", retryable=False)
-    creds = credentials(db, source)
+        raise SearchFailed(f"Automated download from {source} is not available.", retryable=False)
+    _adapter(source).check_login(credentials(db, source))
+
+
+def _adapter(source: str):
+    if source == "MEDISCA":
+        from app.search import medisca
+
+        return medisca
     from app.search import compounding_today
 
-    compounding_today.check_login(creds)
+    return compounding_today

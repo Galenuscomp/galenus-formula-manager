@@ -48,7 +48,7 @@ function AccountRow({ account }) {
         <SourceLabel source={account.source} />
         <span className="text-xs text-slate-500">
           {account.configured ? "Login saved" : "No login"}
-          {!account.downloads_supported && " · automatic download coming soon"}
+          {account.source === "MEDISCA" && " · needs a MEDISCA formulation package for formula downloads"}
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

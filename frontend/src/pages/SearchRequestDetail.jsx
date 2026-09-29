@@ -85,7 +85,8 @@ export default function SearchRequestDetail() {
     .sort((a, b) => (SOURCE_ORDER.indexOf(a) + 1 || 999) - (SOURCE_ORDER.indexOf(b) + 1 || 999))
     .map((source) => ({ source, items: groups[source] }));
   const automated = config?.automated_sources || [];
-  const manualSources = request.sources.filter((s) => !automated.includes(s));
+  // Requested sources with no download job: upload by hand, or pick from the catalog matches.
+  const manualSources = request.sources.filter((s) => !request.jobs.some((j) => j.source_name === s));
 
   return (
     <div className="p-4 sm:p-6 md:p-10 max-w-5xl mx-auto pb-28 md:pb-10">
@@ -145,7 +146,9 @@ export default function SearchRequestDetail() {
               <div key={s} className="rounded-xl border border-dashed border-slate-300 bg-white p-4 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2 min-w-0">
                   <SourceLabel source={s} />
-                  <span className="text-xs text-slate-500">Manual — upload the PDF</span>
+                  <span className="text-xs text-slate-500">
+                    {automated.includes(s) ? "Download a catalog match above, or upload the PDF" : "Manual — upload the PDF"}
+                  </span>
                 </div>
                 {canPrepare && (
                   <Button variant="outline" size="sm" onClick={() => openUpload({ source_name: s })}>

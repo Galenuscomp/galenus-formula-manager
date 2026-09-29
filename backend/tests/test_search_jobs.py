@@ -181,12 +181,11 @@ def test_source_accounts_admin_only_and_password_never_returned(client, db, monk
     db.refresh(row)
     assert "Sup3r-secret" not in row.password_encrypted and crypto.decrypt(row.password_encrypted) == "Sup3r-secret"
     views = {v["source"]: v for v in admin.get("/api/source-accounts").json()}
-    assert views["MEDISCA"]["username"] == "lab@pharmacy.test" and views["MEDISCA"]["downloads_supported"] is False
+    assert views["MEDISCA"]["username"] == "lab@pharmacy.test" and views["MEDISCA"]["downloads_supported"] is True
     # Changing only the username keeps the password.
     admin.put("/api/source-accounts/MEDISCA", json={"username": "other@pharmacy.test"})
     db.refresh(row)
     assert crypto.decrypt(row.password_encrypted) == "Sup3r-secret"
-    assert admin.post("/api/source-accounts/MEDISCA/test").status_code == 422  # no adapter yet
     assert admin.put("/api/source-accounts/Unknown", json={"username": "u", "password": "p"}).status_code == 404
     assert admin.delete("/api/source-accounts/MEDISCA").json()[1]["configured"] is False
 
@@ -204,3 +203,47 @@ def test_source_account_login_check(client, monkeypatch):
     monkeypatch.setattr(compounding_today, "check_login", rejected)
     r = admin.post("/api/source-accounts/CompoundingToday/test")
     assert r.status_code == 422 and "rejected" in r.json()["detail"]
+
+
+@pytest.fixture
+def medisca_account(db):
+    db.add(SourceAccount(source="MEDISCA", username_encrypted=crypto.encrypt("lab@pharmacy.test"),
+                         password_encrypted=crypto.encrypt("secret")))
+    db.commit()
+
+
+def test_medisca_downloads_only_exact_catalog_formulas(client, db, monkeypatch, medisca_account):
+    api = client("tech")
+    # Without a catalog pick there is no MEDISCA search job (their site is not searched by keyword).
+    req = _create(api, sources=("MEDISCA",))
+    assert db.query(Job).filter_by(request_id=req["id"]).count() == 0
+    r = api.post(f"/api/requests/{req['id']}/search", json={"source_name": "MEDISCA"})
+    assert r.status_code == 422 and "catalog" in r.json()["detail"]
+    # From a catalog pick: that exact formula number.
+    ref = {"source": "MEDISCA", "formula_id": "F000473", "title": "Diazepam 5 mg/mL Oral Liquid",
+           "url": "https://www.medisca.com/formulas/library?q=F000473"}
+    req = _create(api, sources=("MEDISCA",), catalog_ref=ref)
+    job = db.query(Job).filter_by(request_id=req["id"]).one()
+    assert job.source_name == "MEDISCA" and job.payload["formula_id"] == "F000473"
+    seen = {}
+    monkeypatch.setattr(jobs, "fetch_source", lambda db_, source, **k: seen.update(source=source, **k) or FoundDocument(
+        pdf=PDF, filename="m.pdf", source_name="MEDISCA", source_formula_id="F000473", title="Diazepam", url=ref["url"]))
+    jobs.run_pending(db)
+    assert seen["source"] == "MEDISCA" and seen["formula_id"] == "F000473"
+    assert api.get(f"/api/requests/{req['id']}").json()["documents"][0]["source_formula_id"] == "F000473"
+
+
+def test_medisca_adapter_rejects_non_catalog_numbers():
+    from app.search import medisca
+    from app.search.automation import Credentials
+
+    with pytest.raises(SearchFailed) as info:
+        medisca.fetch(Credentials("u", "p"), active_ingredient="Diazepam", formula_id="")
+    assert "catalog" in str(info.value) and info.value.retryable is False
+
+
+def test_medisca_login_check(client, monkeypatch, medisca_account):
+    from app.search import medisca
+
+    monkeypatch.setattr(medisca, "check_login", lambda creds: None)
+    assert client("admin").post("/api/source-accounts/MEDISCA/test").json() == {"ok": True}
