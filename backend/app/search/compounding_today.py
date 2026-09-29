@@ -25,6 +25,8 @@ FORMULAS_URL = f"{BASE_URL}/formulation/Formula.cfm"
 COOLDOWN_SECONDS = 5 * 60
 NAV_TIMEOUT_MS = 30_000
 LOGIN_FORM = 'form[name="frmLogin2"], form:has(input[name="strPassword"])'
+# A long-standing formula, used by "Test login" to confirm a PDF really downloads.
+CHECK_FORMULA_ID = "233"
 
 
 def _dir() -> Path:
@@ -97,35 +99,16 @@ def _submit_login(page, form, creds: Credentials) -> None:
     page.wait_for_timeout(1000)
 
 
-def _ensure_logged_in(page, context, creds: Credentials) -> None:
-    page.goto(FORMULAS_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-    if not _is_login_url(page.url):
-        return
-    if _account_in_use(page):
-        _start_cooldown()
-        raise SearchCooldown("CompoundingToday: Account in Use")
-    form = page.locator(LOGIN_FORM).first
-    if form.count() == 0:
-        raise SearchFailed("CompoundingToday login form was not found", retryable=True)
-    _submit_login(page, form, creds)
-    if _account_in_use(page):
-        _start_cooldown()
-        raise SearchCooldown("CompoundingToday: Account in Use")
-    page.goto(FORMULAS_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-    if _is_login_url(page.url):
-        _state_path().unlink(missing_ok=True)
-        raise SearchFailed("CompoundingToday rejected the username or password. Check Users > Source accounts.",
-                           retryable=False)
-    context.storage_state(path=str(_state_path()))
-
-
 def _keyword_search(page, active_ingredient: str) -> list[dict]:
+    # Browsing and searching are open to everyone; only the PDF needs a login.
+    page.goto(FORMULAS_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
     form = page.locator('form[name="frmKeywordSearch"]')
     if form.count() == 0:
         raise SearchFailed("CompoundingToday keyword search form was not found", retryable=True)
-    form.locator('input[name="searchstr"]').fill(active_ingredient)
-    form.locator('button[type="submit"], input[type="submit"]').first.click()
-    page.wait_for_load_state("domcontentloaded", timeout=NAV_TIMEOUT_MS)
+    box = form.locator('input[name="searchstr"]')
+    box.fill(active_ingredient)
+    with page.expect_navigation(wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS):
+        box.press("Enter")
     page.wait_for_timeout(750)
     found, seen = [], set()
     for link in page.locator('a[href*="FormulaInfo.cfm?ID="]').all():
@@ -146,10 +129,10 @@ def _request_pdf(context, pdf_url: str, referer: str) -> bytes | None:
 
 
 def _download_pdf(page, context, creds: Credentials, pdf_url: str, referer: str) -> bytes:
+    """Fetch the PDF with the saved session; if the site sends us to Login.cfm?DEST=..., sign in there."""
     pdf = _request_pdf(context, pdf_url, referer)
     if pdf:
         return pdf
-    # The PDF endpoint sometimes asks to log in again; open it in the page to see why.
     try:
         page.goto(pdf_url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
     except Exception:
@@ -157,16 +140,20 @@ def _download_pdf(page, context, creds: Credentials, pdf_url: str, referer: str)
     if _account_in_use(page):
         _start_cooldown()
         raise SearchCooldown("CompoundingToday: Account in Use")
-    second = page.locator('form[name="frmLogin2"]').first
-    if second.count():
-        _submit_login(page, second, creds)
+    form = page.locator(LOGIN_FORM).first
+    if form.count():
+        _submit_login(page, form, creds)
         if _account_in_use(page):
             _start_cooldown()
             raise SearchCooldown("CompoundingToday: Account in Use")
     pdf = _request_pdf(context, pdf_url, referer)
-    if not pdf:
-        raise SearchFailed("CompoundingToday did not return a PDF for this formula", retryable=True)
-    return pdf
+    if pdf:
+        return pdf
+    if _is_login_url(page.url) or page.locator(LOGIN_FORM).count():
+        _state_path().unlink(missing_ok=True)
+        raise SearchFailed("CompoundingToday did not accept the login. Check the username and password "
+                           "under Users > Source accounts, and that the membership is active.", retryable=False)
+    raise SearchFailed("CompoundingToday did not return a PDF for this formula", retryable=True)
 
 
 @contextmanager
@@ -193,9 +180,19 @@ def _safe_filename(value: str) -> str:
 
 
 def check_login(creds: Credentials) -> None:
+    """Sign in and confirm a formula PDF really comes back (browsing works without a login)."""
     _check_cooldown()
-    with _exclusive(wait=False), _browser() as context:
-        _ensure_logged_in(context.new_page(), context, creds)
+    try:
+        with _exclusive(wait=False), _browser() as context:
+            info = f"{BASE_URL}/formulation/FormulaInfo.cfm?ID={CHECK_FORMULA_ID}"
+            pdf_url = f"{BASE_URL}/formulation/FormulaPDF.cfm?FormulaID={CHECK_FORMULA_ID}"
+            _download_pdf(context.new_page(), context, creds, pdf_url, info)
+            context.storage_state(path=str(_state_path()))
+    except (SearchCooldown, SearchFailed):
+        raise
+    except Exception as exc:
+        raise SearchFailed(f"Could not reach CompoundingToday: {str(exc).splitlines()[0][:200]}",
+                           retryable=True) from exc
 
 
 def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", title: str = "") -> FoundDocument:
@@ -206,7 +203,6 @@ def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", t
     try:
         with _exclusive(wait=True), _browser() as context:
             page = context.new_page()
-            _ensure_logged_in(page, context, creds)
             if formula_id:
                 selected = {"id": formula_id, "title": title.strip(),
                             "url": f"{BASE_URL}/formulation/FormulaInfo.cfm?ID={formula_id}"}
@@ -216,8 +212,6 @@ def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", t
                     raise SearchNoResults()
                 selected = results[0]
             page.goto(selected["url"], wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
-            if _is_login_url(page.url):
-                raise SearchFailed("CompoundingToday asked to log in again on the formula page", retryable=True)
             if not selected["title"]:
                 heading = page.locator("h1, h2, h3").first
                 selected["title"] = re.sub(r"\s+", " ", heading.inner_text()).strip()[:300] if heading.count() else ""
