@@ -41,6 +41,7 @@ _FORMS = [
 ]
 _ROUTES = ["oral", "topical", "transdermal", "rectal", "vaginal", "ophthalmic", "otic", "nasal", "sublingual",
            "buccal", "dental", "parenteral", "intravitreal", "inhalation"]
+_LIQUID_KINDS = {"solution", "suspension", "emulsion", "syrup", "elixir"}
 SOURCES = ("MEDISCA", "CompoundingToday")
 
 
@@ -100,7 +101,8 @@ def parse_medisca(title: str, route: str, form: str) -> Parsed:
     out.active_ingredient, out.strength, _ = _ingredients_and_strengths(api)
     if not out.active_ingredient:
         out.active_ingredient = api.strip(" ,")
-    shape = kind if form.lower() == "liquid" and kind else form
+    # "Liquid (Suspension, ...)" -> "suspension"; other notes such as "(MAZ)" are not a form.
+    shape = kind if form.lower() == "liquid" and kind.lower() in _LIQUID_KINDS else form
     out.dosage_form = " ".join(x for x in (route, shape.lower()) if x).strip()
     return out
 

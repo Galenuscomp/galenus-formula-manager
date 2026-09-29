@@ -24,6 +24,8 @@ CT_CSV = (
      ("Nystatin", "500 000 IU", "Oral capsules", "100 x Size #1 Capsules")),
     ("Progesterone 40 mg per mL Topical Cream", "Topical", "Cream",
      ("Progesterone", "40 mg per mL", "Topical cream", "")),
+    ("Baclofen 10 mg per 5 mL Oral Liquid (MAZ)", "Oral", "Liquid",
+     ("Baclofen", "10 mg per 5 mL", "Oral liquid", "")),
 ])
 def test_parse_medisca(title, route, form, expected):
     p = parse_medisca(title, route, form)
