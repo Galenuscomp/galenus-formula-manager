@@ -40,6 +40,21 @@ class User(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class UserAISettings(Base):
+    """A user's own AI extraction provider. No row means: use the server default
+    from .env. The API key is encrypted (app.crypto) and never sent back to the
+    browser; only its last four characters are kept in clear for display."""
+
+    __tablename__ = "user_ai_settings"
+
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    provider: Mapped[str] = mapped_column(String(20))  # none | openai | anthropic
+    model: Mapped[str | None] = mapped_column(String(100))
+    api_key_encrypted: Mapped[str | None] = mapped_column(Text)
+    key_last4: Mapped[str | None] = mapped_column(String(4))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
 class AuthSession(TimestampMixin, Base):
     __tablename__ = "auth_sessions"
 
@@ -109,6 +124,8 @@ class Job(TimestampMixin, Base):
     request_id: Mapped[str] = mapped_column(ForeignKey("search_requests.id"), index=True)
     source_name: Mapped[str | None] = mapped_column(String(120))
     source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"))
+    # Extraction jobs run with this user's AI settings (server default when unset).
+    requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     # Queued | Running | Completed | No results | Failed | Cooldown | Cancelled
     status: Mapped[str] = mapped_column(String(20), default="Queued", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)

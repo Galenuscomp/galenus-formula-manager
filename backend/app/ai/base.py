@@ -22,3 +22,7 @@ class Extractor(Protocol):
     model: str
 
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult: ...
+
+    def verify(self) -> None:
+        """Check the API key and model name with a free metadata call.
+        Raises ExtractionError with a message fit to show the user."""

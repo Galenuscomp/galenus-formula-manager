@@ -41,12 +41,13 @@ def _commit(db):
 
 
 @router.get("/config")
-def app_config(_: CurrentUser):
+def app_config(user: CurrentUser, db: DB):
     s = get_settings()
+    ident = services.ai_identity_for(db, user.id)
     return {
         "automated_sources": sorted(AUTOMATED_SOURCES) if automation_configured(s) else [],
-        "ai_enabled": s.ai_provider != "none",
-        "ai_provider": s.ai_provider,
+        "ai_enabled": ident is not None,
+        "ai_provider": ident[0] if ident else "none",
         "max_upload_mb": s.max_upload_mb,
     }
 
@@ -226,9 +227,9 @@ def save_draft(draft_id: str, body: DraftSaveIn, user: Preparer, db: DB):
 @router.post("/drafts/{draft_id}/extract")
 def extract(draft_id: str, user: Preparer, db: DB):
     draft = _get(db, Draft, draft_id)
-    if not get_settings().ai_provider or get_settings().ai_provider == "none":
-        raise RuleViolation("AI extraction is not configured on this server.")
-    jobs = services.enqueue_extractions(db, draft)
+    if services.ai_identity_for(db, user.id) is None:
+        raise RuleViolation("AI extraction is turned off for your account. Choose a provider in Account settings.")
+    jobs = services.enqueue_extractions(db, draft, user)
     audit.record(db, user.id, "extraction_queued", "draft", draft.id, jobs=len(jobs))
     _commit(db)
     return {"queued": len(jobs)}

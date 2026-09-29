@@ -7,6 +7,9 @@ class FakeExtractor:
     provider = "fake"
     model = "fake-extractor"
 
+    def verify(self) -> None:
+        pass
+
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult:
         return ExtractionResult(
             model=self.model,

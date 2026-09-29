@@ -178,9 +178,12 @@ def _run_extract(db: Session, job: Job) -> None:
     if doc is None or not doc.file_sha256:
         _finish(db, job, "Failed", "Source document has no file")
         return
-    settings = get_settings()
     try:
-        extractor = get_extractor(settings)
+        # Settings are read when the job runs, so a key fixed after a failure is used on retry.
+        config = services.ai_config_for(db, job.requested_by)
+        if config is None:
+            raise ExtractionError("AI extraction is turned off for the user who requested it")
+        extractor = get_extractor(config, get_settings())
     except ExtractionError as exc:
         _finish(db, job, "Failed", str(exc))
         return

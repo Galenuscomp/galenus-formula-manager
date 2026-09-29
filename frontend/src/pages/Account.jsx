@@ -5,6 +5,7 @@ import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import AISettingsCard from "@/components/AISettingsCard";
 import { ErrorList } from "@/components/PageState";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -59,6 +60,7 @@ export default function Account() {
           {change.isPending ? "Saving…" : "Change password"}
         </Button>
       </form>
+      <AISettingsCard />
     </div>
   );
 }

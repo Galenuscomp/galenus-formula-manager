@@ -20,6 +20,14 @@ class PasswordChangeIn(Strict):
     new_password: str = Field(min_length=10, max_length=200)
 
 
+class AISettingsIn(Strict):
+    # default: the server's provider from .env. none: no AI extraction.
+    provider: Literal["default", "none", "openai", "anthropic"]
+    model: str | None = Field(default=None, max_length=100)
+    # Omit to keep the key already saved for the same provider.
+    api_key: str | None = Field(default=None, max_length=500)
+
+
 class UserCreateIn(Strict):
     email: str = Field(max_length=320, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     full_name: str = Field(min_length=1, max_length=200)

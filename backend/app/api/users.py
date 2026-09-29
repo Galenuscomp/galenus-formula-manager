@@ -6,7 +6,7 @@ from app.api import serialize
 from app.api.deps import DB, Admin
 from app.api.schemas import UserCreateIn, UserUpdateIn
 from app.db import utcnow
-from app.models import AuthSession, User
+from app.models import AuthSession, User, UserAISettings
 from app.security import hash_password
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -14,7 +14,10 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 @router.get("")
 def list_users(_: Admin, db: DB):
-    return [serialize.user(u) for u in db.scalars(select(User).order_by(User.full_name))]
+    # Which AI provider each user extracts with; the admin never sees their keys.
+    ai = {r.user_id: r.provider for r in db.scalars(select(UserAISettings))}
+    return [{**serialize.user(u), "ai_provider": ai.get(u.id, "default")}
+            for u in db.scalars(select(User).order_by(User.full_name))]
 
 
 @router.post("", status_code=201)

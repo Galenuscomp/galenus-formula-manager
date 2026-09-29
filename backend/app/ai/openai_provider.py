@@ -10,9 +10,21 @@ from app.ai.schema import EXTRACTION_INSTRUCTIONS, strict_schema
 class OpenAIExtractor:
     provider = "openai"
 
-    def __init__(self, model: str, *, timeout: float = 240.0):
+    def __init__(self, model: str, *, api_key: str | None = None, timeout: float = 240.0):
         self.model = model
-        self.client = openai.OpenAI(timeout=timeout, max_retries=2)
+        self.client = openai.OpenAI(api_key=api_key, timeout=timeout, max_retries=2)
+
+    def verify(self) -> None:
+        try:
+            self.client.models.retrieve(self.model)
+        except openai.AuthenticationError as exc:
+            raise ExtractionError("OpenAI rejected the API key") from exc
+        except openai.NotFoundError as exc:
+            raise ExtractionError(f'OpenAI has no model named "{self.model}"') from exc
+        except openai.APIStatusError as exc:
+            raise ExtractionError(f"OpenAI returned error {exc.status_code}") from exc
+        except openai.APIConnectionError as exc:
+            raise ExtractionError("Could not reach OpenAI", retryable=True) from exc
 
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult:
         data_url = "data:application/pdf;base64," + base64.standard_b64encode(pdf).decode("ascii")

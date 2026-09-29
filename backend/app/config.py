@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     public_origin: str | None = None
     session_cookie_secure: bool = True
     session_ttl_hours: int = 12
+    # Encrypts secrets users store in the database (their AI provider API keys).
+    # Changing it makes every stored key unreadable; users then re-enter them.
+    secrets_key: str | None = None
 
     ai_provider: Literal["anthropic", "openai", "fake", "none"] = "none"
     anthropic_model: str = "claude-opus-5"

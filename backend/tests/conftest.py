@@ -21,6 +21,7 @@ def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("SESSION_COOKIE_SECURE", "false")
     monkeypatch.setenv("AI_PROVIDER", "fake")
+    monkeypatch.setenv("SECRETS_KEY", "test-secrets-key")
     monkeypatch.setenv("FORMULA_AUTOMATION_URL", "http://automation.test/pdf")
     monkeypatch.setenv("FORMULA_AUTOMATION_API_KEY", "test-key")
     get_settings.cache_clear()

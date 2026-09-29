@@ -53,13 +53,14 @@ if [ ! -f .env ]; then
   cp .env.example .env
   chmod 600 .env
   read -r -s -p "Anthropic API key (input hidden, Enter to skip): " AKEY; echo
-  python3 - "$DOMAIN" "$(openssl rand -hex 24)" "$AKEY" <<'PY'
+  python3 - "$DOMAIN" "$(openssl rand -hex 24)" "$AKEY" "$(openssl rand -hex 32)" <<'PY'
 import sys, re
-domain, pg, akey = sys.argv[1:4]
+domain, pg, akey, sk = sys.argv[1:5]
 p = ".env"
 s = open(p).read()
 s = re.sub(r"(?m)^DOMAIN=.*$", f"DOMAIN={domain}", s)
 s = re.sub(r"(?m)^POSTGRES_PASSWORD=.*$", f"POSTGRES_PASSWORD={pg}", s)
+s = re.sub(r"(?m)^SECRETS_KEY=.*$", f"SECRETS_KEY={sk}", s)
 if akey:
     s = re.sub(r"(?m)^ANTHROPIC_API_KEY=.*$", f"ANTHROPIC_API_KEY={akey}", s)
 else:

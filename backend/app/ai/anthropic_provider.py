@@ -12,10 +12,22 @@ _FALLBACK_BETA = "server-side-fallback-2026-07-01"
 class AnthropicExtractor:
     provider = "anthropic"
 
-    def __init__(self, model: str, *, fallbacks: str = "default", timeout: float = 240.0):
+    def __init__(self, model: str, *, api_key: str | None = None, fallbacks: str = "default", timeout: float = 240.0):
         self.model = model
         self.fallbacks = fallbacks
-        self.client = anthropic.Anthropic(timeout=timeout, max_retries=2)
+        self.client = anthropic.Anthropic(api_key=api_key, timeout=timeout, max_retries=2)
+
+    def verify(self) -> None:
+        try:
+            self.client.models.retrieve(self.model)
+        except anthropic.AuthenticationError as exc:
+            raise ExtractionError("Anthropic rejected the API key") from exc
+        except anthropic.NotFoundError as exc:
+            raise ExtractionError(f'Anthropic has no model named "{self.model}"') from exc
+        except anthropic.APIStatusError as exc:
+            raise ExtractionError(f"Anthropic returned error {exc.status_code}") from exc
+        except anthropic.APIConnectionError as exc:
+            raise ExtractionError("Could not reach Anthropic", retryable=True) from exc
 
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult:
         params = dict(

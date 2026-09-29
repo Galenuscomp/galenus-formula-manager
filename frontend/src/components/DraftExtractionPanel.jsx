@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { Sparkles, CheckCircle2, AlertCircle, Loader2, ChevronDown, ChevronUp, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SourceLabel from "@/components/SourceLabel";
@@ -115,12 +116,15 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
     setValidationResult(validateDraftValues({ ...draftValues, active_ingredients: normalizedAIs }));
   }, [doneKey]);
 
-  if (!aiEnabled) {
+  // With AI off for this user, results someone else already extracted are still shown.
+  if (!aiEnabled && !anyResult) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
         <h2 className="text-sm font-semibold text-slate-900 uppercase tracking-wide">AI extraction</h2>
         <p className="text-sm text-slate-500 mt-2">
-          AI extraction is not configured on this server. Fill in the draft fields manually from the source PDFs.
+          AI extraction is turned off for your account. Choose a provider under{" "}
+          <Link to="/account" className="text-teal-700 underline">Account</Link>, or fill in the draft fields
+          manually from the source PDFs.
         </p>
       </div>
     );

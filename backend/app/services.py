@@ -9,11 +9,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.base import ExtractionResult
+from app import crypto
+from app.ai import AIConfig, server_config
+from app.ai.base import ExtractionError, ExtractionResult
 from app.ai.schema import SCHEMA_VERSION
 from app.config import get_settings
 from app.db import utcnow
-from app.models import Decision, Draft, Extraction, Job, SearchRequest, SourceDocument, User
+from app.models import Decision, Draft, Extraction, Job, SearchRequest, SourceDocument, User, UserAISettings
 from app.search.automation import AUTOMATED_SOURCES, automation_configured
 
 
@@ -138,15 +140,33 @@ def cancel_job(db: Session, job: Job) -> None:
 # ---------------------------------------------------------------- extraction
 
 
-def _extractor_identity() -> tuple[str, str] | None:
-    s = get_settings()
-    if s.ai_provider == "anthropic":
-        return "anthropic", s.anthropic_model
-    if s.ai_provider == "openai" and s.openai_model:
-        return "openai", s.openai_model
-    if s.ai_provider == "fake":
-        return "fake", "fake-extractor"
-    return None
+def ai_identity_for(db: Session, user_id: str | None) -> tuple[str, str] | None:
+    """(provider, model) that extraction for this user runs with, or None when AI
+    is off for them. Does not touch the stored key."""
+    row = db.get(UserAISettings, user_id) if user_id else None
+    if row is None:
+        config = server_config(get_settings())
+        return (config.provider, config.model) if config else None
+    if row.provider == "none" or not row.model:
+        return None
+    return row.provider, row.model
+
+
+def ai_config_for(db: Session, user_id: str | None) -> AIConfig | None:
+    """Like ai_identity_for, plus the decrypted API key. Raises ExtractionError
+    when the stored key cannot be read."""
+    row = db.get(UserAISettings, user_id) if user_id else None
+    if row is None:
+        return server_config(get_settings())
+    if row.provider == "none" or not row.model:
+        return None
+    try:
+        key = crypto.decrypt(row.api_key_encrypted) if row.api_key_encrypted else None
+    except crypto.SecretError as exc:
+        raise ExtractionError(str(exc)) from exc
+    if not key:
+        raise ExtractionError("No API key is saved for your AI provider. Add one in Account settings.")
+    return AIConfig(row.provider, row.model, key)
 
 
 def cached_extraction(db: Session, sha: str, provider: str, model: str) -> Extraction | None:
@@ -178,16 +198,24 @@ def save_extraction(db: Session, sha: str, provider: str, model: str, result: Ex
 
 
 def extraction_for(db: Session, doc: SourceDocument) -> Extraction | None:
-    ident = _extractor_identity()
-    if ident is None or not doc.file_sha256:
+    """Latest extraction of this file by any provider: users may use different
+    providers, and everyone working on the draft sees the same result."""
+    if not doc.file_sha256:
         return None
-    return cached_extraction(db, doc.file_sha256, *ident)
+    return db.scalar(
+        select(Extraction)
+        .where(Extraction.file_sha256 == doc.file_sha256, Extraction.schema_version == SCHEMA_VERSION)
+        .order_by(Extraction.created_at.desc())
+        .limit(1)
+    )
 
 
-def enqueue_extractions(db: Session, draft: Draft) -> list[Job]:
-    """Queue extraction for each source document that has no cached result and
-    no extraction already queued/running."""
-    if _extractor_identity() is None:
+def enqueue_extractions(db: Session, draft: Draft, user: User) -> list[Job]:
+    """Queue extraction, with this user's AI settings, for each source document
+    that has no cached result for that provider/model and no extraction already
+    queued/running."""
+    ident = ai_identity_for(db, user.id)
+    if ident is None:
         return []
     jobs: list[Job] = []
     active = {
@@ -202,9 +230,12 @@ def enqueue_extractions(db: Session, draft: Draft) -> list[Job]:
     }
     for doc_id in draft.source_document_ids:
         doc = db.get(SourceDocument, doc_id)
-        if doc is None or doc_id in active or extraction_for(db, doc) is not None:
+        if doc is None or doc_id in active or not doc.file_sha256:
             continue
-        jobs.append(enqueue(db, Job(kind="extract", request_id=draft.request_id, source_document_id=doc_id)))
+        if cached_extraction(db, doc.file_sha256, *ident) is not None:
+            continue
+        jobs.append(enqueue(db, Job(kind="extract", request_id=draft.request_id, source_document_id=doc_id,
+                                    requested_by=user.id)))
     return jobs
 
 
@@ -232,7 +263,7 @@ def create_draft(db: Session, user: User, req: SearchRequest, document_ids: list
     )
     db.add(draft)
     db.flush()
-    enqueue_extractions(db, draft)
+    enqueue_extractions(db, draft, user)
     refresh_request_status(db, req.id)
     return draft
 

@@ -19,6 +19,9 @@ const ROLES = [
   { value: "admin", label: "Administrator — manages users" },
 ];
 
+// Users on the server default show nothing; the others show their own provider.
+const AI_LABELS = { openai: "OpenAI (own key)", anthropic: "Anthropic (own key)", none: "off" };
+
 function UserDialog({ open, onOpenChange, editing, onSaved }) {
   const [form, setForm] = React.useState({});
   const [errors, setErrors] = React.useState(null);
@@ -125,6 +128,7 @@ export default function Users() {
                 <p className="text-sm text-slate-500 truncate">{u.email}</p>
                 <p className="text-xs text-slate-400">
                   {u.role}{u.licence_number ? ` · licence ${u.licence_number}` : ""}
+                  {u.ai_provider && u.ai_provider !== "default" ? ` · AI: ${AI_LABELS[u.ai_provider] || u.ai_provider}` : ""}
                 </p>
               </button>
               <label className="flex items-center gap-2 text-xs text-slate-500">
