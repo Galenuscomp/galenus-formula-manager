@@ -8,6 +8,7 @@ from app import audit, services
 from app.api import serialize
 from app.api.deps import DB, CurrentUser, Pharmacist, Preparer
 from app.api.schemas import (
+    CatalogRefIn,
     DecisionIn,
     DraftCreateIn,
     DraftSaveIn,
@@ -19,7 +20,7 @@ from app.api.schemas import (
 from app.config import get_settings
 from app.models import Draft, Job, SearchRequest, SourceDocument
 from app.pdf import render_formula_pdf
-from app.search.automation import AUTOMATED_SOURCES, automation_configured
+from app.search.automation import configured_sources
 from app.services import RuleViolation
 from app.storage import InvalidFile, read_pdf, store_pdf
 
@@ -45,7 +46,8 @@ def app_config(user: CurrentUser, db: DB):
     s = get_settings()
     ident = services.ai_identity_for(db, user.id)
     return {
-        "automated_sources": sorted(AUTOMATED_SOURCES) if automation_configured(s) else [],
+        # Sources the worker can download PDFs from (adapter + saved login).
+        "automated_sources": sorted(configured_sources(db)),
         "ai_enabled": ident is not None,
         "ai_provider": ident[0] if ident else "none",
         "max_upload_mb": s.max_upload_mb,
@@ -120,8 +122,19 @@ def get_request(request_id: str, _: CurrentUser, db: DB):
 @router.post("/requests/{request_id}/search")
 def retry_search(request_id: str, body: RetrySearchIn, user: Preparer, db: DB):
     req = _get(db, SearchRequest, request_id)
-    job = services.retry_search(db, req, body.source_name)
+    payload = {"formula_id": body.formula_id, "title": body.title, "url": body.url} if body.formula_id else None
+    job = services.retry_search(db, req, body.source_name, payload)
     audit.record(db, user.id, "search_queued", "request", req.id, source=body.source_name)
+    _commit(db)
+    return serialize.job(job)
+
+
+@router.post("/requests/{request_id}/download")
+def download_formula(request_id: str, body: CatalogRefIn, user: Preparer, db: DB):
+    """Download one catalog formula's PDF from its source in the background."""
+    req = _get(db, SearchRequest, request_id)
+    job = services.download_formula(db, req, body.source, body.formula_id, body.title, body.url)
+    audit.record(db, user.id, "download_queued", "request", req.id, source=body.source, formula_id=body.formula_id)
     _commit(db)
     return serialize.job(job)
 

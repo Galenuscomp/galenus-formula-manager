@@ -10,8 +10,7 @@ export const FORMULA_SOURCES = [
 ];
 
 export const DEFAULT_SOURCES = ["CompoundingToday", "MEDISCA"];
-
-export const AUTOMATED_SOURCES = ["CompoundingToday", "MEDISCA"];
+// Which sources download automatically comes from the server: /api/config automated_sources.
 
 export const SOURCE_LABELS = {
   "CompoundingToday": { className: "bg-teal-50 text-teal-700 border-teal-200" },

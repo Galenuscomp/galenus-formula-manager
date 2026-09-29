@@ -1,21 +1,27 @@
-"""Client for the external formula automation worker (ported from the Base44
-function startFormulaSourceSearch). Runs only inside background jobs, never in
-an HTTP request, so a slow or sleeping worker cannot freeze the UI."""
+"""Downloading formula PDFs from the sources' websites with the pharmacy's own login.
 
-import re
+Each source with automation has an adapter (a headless browser, see
+compounding_today.py). Runs only inside background jobs, never in an HTTP
+request, so a slow site cannot freeze the UI. The only exception is the admin's
+"Test login" button, which runs one login.
+"""
+
 from dataclasses import dataclass
-from urllib.parse import unquote
 
-import httpx
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.config import Settings
+from app import crypto
+from app.models import SourceAccount
 
-# Sources with an automated download flow. Every other source is manual upload.
+# Sources with a download adapter. Every other source is manual upload.
 AUTOMATED_SOURCES = {"CompoundingToday"}
+# Sources whose login the admin can store (MEDISCA's download comes later).
+ACCOUNT_SOURCES = ("CompoundingToday", "MEDISCA")
 
 
 class SearchCooldown(Exception):
-    pass
+    """The source refused for now (e.g. CompoundingToday "Account in Use"); retry later."""
 
 
 class SearchNoResults(Exception):
@@ -38,51 +44,44 @@ class FoundDocument:
     url: str
 
 
-_FILENAME = re.compile(r"filename\*?=(?:UTF-8'')?[\"']?([^\"';\n]+)[\"']?", re.I)
+@dataclass
+class Credentials:
+    username: str
+    password: str
 
 
-def automation_configured(settings: Settings) -> bool:
-    return bool(settings.formula_automation_url and settings.formula_automation_api_key)
+def configured_sources(db: Session) -> set[str]:
+    """Sources the worker can download from: an adapter exists and a login is saved."""
+    saved = set(db.scalars(select(SourceAccount.source)))
+    return AUTOMATED_SOURCES & saved
 
 
-def fetch_compounding_today(
-    settings: Settings, *, active_ingredient: str, strength: str, dosage_form: str
-) -> FoundDocument:
-    if not automation_configured(settings):
-        raise SearchFailed("Automated search is not configured on this server", retryable=False)
+def credentials(db: Session, source: str) -> Credentials:
+    row = db.get(SourceAccount, source)
+    if row is None:
+        raise SearchFailed(f"No {source} login is saved. An admin adds it under Users > Source accounts.",
+                           retryable=False)
     try:
-        response = httpx.post(
-            settings.formula_automation_url,  # type: ignore[arg-type]
-            json={"active_ingredient": active_ingredient, "strength": strength, "dosage_form": dosage_form},
-            headers={"x-api-key": settings.formula_automation_api_key or ""},
-            timeout=settings.automation_timeout_seconds,
-        )
-    except httpx.TimeoutException as exc:
-        raise SearchFailed("Search worker timed out", retryable=True) from exc
-    except httpx.HTTPError as exc:
-        raise SearchFailed("Could not reach search worker", retryable=True) from exc
+        return Credentials(crypto.decrypt(row.username_encrypted), crypto.decrypt(row.password_encrypted))
+    except crypto.SecretError as exc:
+        raise SearchFailed(f"The saved {source} login cannot be read; save it again.", retryable=False) from exc
 
-    if response.status_code == 429:
-        raise SearchCooldown()
-    if response.status_code == 404:
-        raise SearchNoResults()
-    if response.status_code >= 400:
-        raise SearchFailed(
-            f"Search worker returned {response.status_code}", retryable=response.status_code >= 500
-        )
-    if not response.content.startswith(b"%PDF-"):
-        raise SearchFailed("Search worker did not return a PDF", retryable=False)
 
-    filename = "compounding-formula.pdf"
-    match = _FILENAME.search(response.headers.get("content-disposition", ""))
-    if match:
-        filename = unquote(match.group(1).strip()) or filename
-    h = response.headers
-    return FoundDocument(
-        pdf=response.content,
-        filename=filename[:300],
-        source_name=h.get("x-source") or "CompoundingToday",
-        source_formula_id=h.get("x-source-formula-id", "")[:200],
-        title=h.get("x-source-formula-title", "")[:500],
-        url=h.get("x-source-formula-url", "")[:2000],
-    )
+def fetch(db: Session, source: str, *, active_ingredient: str, strength: str = "", dosage_form: str = "",
+          formula_id: str = "", title: str = "") -> FoundDocument:
+    """Download one formula PDF: the given formula_id, else the first keyword-search hit."""
+    if source not in AUTOMATED_SOURCES:
+        raise SearchFailed(f"{source} has no automated download; upload the PDF instead.", retryable=False)
+    creds = credentials(db, source)
+    from app.search import compounding_today
+
+    return compounding_today.fetch(creds, active_ingredient=active_ingredient, formula_id=formula_id, title=title)
+
+
+def check_login(db: Session, source: str) -> None:
+    if source not in AUTOMATED_SOURCES:
+        raise SearchFailed(f"Automated download from {source} is not available yet.", retryable=False)
+    creds = credentials(db, source)
+    from app.search import compounding_today
+
+    compounding_today.check_login(creds)

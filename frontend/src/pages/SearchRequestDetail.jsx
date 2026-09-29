@@ -44,7 +44,12 @@ export default function SearchRequestDetail() {
   const onError = (err) => toast({ title: "Action failed", description: err.message, variant: "destructive" });
 
   const retry = useMutation({
-    mutationFn: (job) => api.post(`/api/requests/${id}/search`, { source_name: job.source_name }),
+    // Retry downloads the same formula the job was for, when it was a specific one.
+    mutationFn: (job) => api.post(`/api/requests/${id}/search`, { source_name: job.source_name, ...(job.payload || {}) }),
+    onSuccess: invalidate, onError,
+  });
+  const download = useMutation({
+    mutationFn: (entry) => api.post(`/api/requests/${id}/download`, entry),
     onSuccess: invalidate, onError,
   });
   const cancel = useMutation({ mutationFn: (job) => api.post(`/api/jobs/${job.id}/cancel`), onSuccess: invalidate, onError });
@@ -123,7 +128,9 @@ export default function SearchRequestDetail() {
         </section>
       )}
 
-      <CatalogMatches request={request} onAddPdf={canPrepare ? (initial) => openUpload(initial) : null} />
+      <CatalogMatches request={request} automated={config?.automated_sources || []} busy={download.isPending}
+        onAddPdf={canPrepare ? (initial) => openUpload(initial) : null}
+        onDownload={canPrepare ? (entry) => download.mutate(entry) : null} />
 
       {(request.jobs.length > 0 || manualSources.length > 0) && (
         <section className="mb-6">

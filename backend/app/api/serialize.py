@@ -49,6 +49,7 @@ def job(j: Job) -> dict[str, Any]:
         "kind": j.kind,
         "source_name": j.source_name,
         "source_document_id": j.source_document_id,
+        "payload": j.payload,
         "status": j.status,
         "attempts": j.attempts,
         "max_attempts": j.max_attempts,

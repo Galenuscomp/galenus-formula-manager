@@ -17,18 +17,15 @@ from app.ai import ExtractionError, get_extractor
 from app.config import get_settings
 from app.db import utcnow
 from app.models import Extraction, Job, SearchRequest, SourceDocument
-from app.search.automation import (
-    SearchCooldown,
-    SearchFailed,
-    SearchNoResults,
-    fetch_compounding_today,
-)
+from app.search.automation import SearchCooldown, SearchFailed, SearchNoResults
+from app.search.automation import fetch as fetch_source
 from app.storage import InvalidFile, read_pdf, store_pdf
 
 log = logging.getLogger(__name__)
 
 ACTIVE = ("Queued", "Running")
-COOLDOWN = timedelta(minutes=2)
+# Longer than CompoundingToday's 5-minute "Account in Use" lock, so a retry is not wasted.
+COOLDOWN = timedelta(minutes=6)
 
 
 def recover_expired_leases(db: Session) -> int:
@@ -121,13 +118,16 @@ def _still_running(db: Session, job: Job) -> bool:
 
 def _run_search(db: Session, job: Job) -> None:
     request = db.get(SearchRequest, job.request_id)
-    settings = get_settings()
+    wanted = job.payload or {}
     try:
-        found = fetch_compounding_today(
-            settings,
+        found = fetch_source(
+            db,
+            job.source_name,
             active_ingredient=request.active_ingredient,
             strength=request.strength,
             dosage_form=request.dosage_form,
+            formula_id=wanted.get("formula_id", ""),
+            title=wanted.get("title", ""),
         )
     except SearchCooldown:
         if _still_running(db, job):
@@ -155,6 +155,10 @@ def _run_search(db: Session, job: Job) -> None:
         sha, size = store_pdf(found.pdf)
     except InvalidFile as exc:
         _finish(db, job, "Failed", str(exc))
+        return
+    if db.scalar(select(SourceDocument.id).where(SourceDocument.request_id == request.id,
+                                                 SourceDocument.file_sha256 == sha)):
+        _finish(db, job, "Completed")  # the same PDF is already on this request
         return
     db.add(
         SourceDocument(

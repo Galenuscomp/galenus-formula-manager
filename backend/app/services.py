@@ -16,7 +16,7 @@ from app.ai.schema import SCHEMA_VERSION
 from app.config import get_settings
 from app.db import utcnow
 from app.models import Decision, Draft, Extraction, Job, SearchRequest, SourceDocument, User, UserAISettings
-from app.search.automation import AUTOMATED_SOURCES, automation_configured
+from app.search.automation import AUTOMATED_SOURCES, configured_sources
 
 
 class RuleViolation(Exception):
@@ -75,13 +75,20 @@ def create_request(db: Session, user: User, data: dict[str, Any]) -> SearchReque
     )
     db.add(req)
     db.flush()
-    settings = get_settings()
-    if automation_configured(settings):
-        for source in sources:
-            if source in AUTOMATED_SOURCES:
-                enqueue(db, Job(kind="search", request_id=req.id, source_name=source))
+    automated = configured_sources(db)
+    for source in sources:
+        if source in automated:
+            enqueue(db, Job(kind="search", request_id=req.id, source_name=source, payload=_catalog_payload(req, source)))
     refresh_request_status(db, req.id)
     return req
+
+
+def _catalog_payload(req: SearchRequest, source: str) -> dict[str, Any] | None:
+    """Download exactly the catalog formula the request was created from, when it is from this source."""
+    ref = req.catalog_ref or {}
+    if ref.get("source") == source and ref.get("formula_id"):
+        return {"formula_id": ref["formula_id"], "title": ref.get("title", ""), "url": ref.get("url", "")}
+    return None
 
 
 def enqueue(db: Session, job: Job) -> Job:
@@ -117,16 +124,36 @@ def refresh_request_status(db: Session, request_id: str) -> str:
     return req.status
 
 
-def retry_search(db: Session, req: SearchRequest, source_name: str) -> Job:
+def _check_can_download(db: Session, req: SearchRequest, source_name: str, formula_id: str = "") -> None:
     if source_name not in AUTOMATED_SOURCES:
-        raise RuleViolation(f"{source_name} has no automated search; upload the PDF instead.")
-    if not automation_configured(get_settings()):
-        raise RuleViolation("Automated search is not configured on this server.")
-    if any(j.kind == "search" and j.source_name == source_name and j.status in ("Queued", "Running") for j in req.jobs):
-        raise RuleViolation("A search for this source is already running.", 409)
-    job = enqueue(db, Job(kind="search", request_id=req.id, source_name=source_name))
+        raise RuleViolation(f"{source_name} has no automated download; upload the PDF instead.")
+    if source_name not in configured_sources(db):
+        raise RuleViolation(f"No {source_name} login is saved. An admin adds it under Users > Source accounts.")
+    for j in req.jobs:
+        if j.kind == "search" and j.source_name == source_name and j.status in ("Queued", "Running") \
+                and (j.payload or {}).get("formula_id", "") == formula_id:
+            raise RuleViolation("This download is already running.", 409)
+
+
+def retry_search(db: Session, req: SearchRequest, source_name: str, payload: dict[str, Any] | None = None) -> Job:
+    """Queue a download again: the same formula as before, or a new keyword search."""
+    payload = payload if payload is not None else _catalog_payload(req, source_name)
+    _check_can_download(db, req, source_name, (payload or {}).get("formula_id", ""))
+    job = enqueue(db, Job(kind="search", request_id=req.id, source_name=source_name, payload=payload))
     refresh_request_status(db, req.id)
     return job
+
+
+def download_formula(db: Session, req: SearchRequest, source_name: str, formula_id: str, title: str,
+                     url: str) -> Job:
+    """Queue the download of one specific formula (picked from the catalog on the request page)."""
+    if not formula_id:
+        raise RuleViolation("A formula number is required.")
+    if db.scalar(select(SourceDocument.id).where(SourceDocument.request_id == req.id,
+                                                 SourceDocument.source_name == source_name,
+                                                 SourceDocument.source_formula_id == formula_id)):
+        raise RuleViolation("This formula is already on the request.", 409)
+    return retry_search(db, req, source_name, {"formula_id": formula_id, "title": title, "url": url})
 
 
 def cancel_job(db: Session, job: Job) -> None:

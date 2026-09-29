@@ -22,8 +22,6 @@ def settings(tmp_path, monkeypatch):
     monkeypatch.setenv("SESSION_COOKIE_SECURE", "false")
     monkeypatch.setenv("AI_PROVIDER", "fake")
     monkeypatch.setenv("SECRETS_KEY", "test-secrets-key")
-    monkeypatch.setenv("FORMULA_AUTOMATION_URL", "http://automation.test/pdf")
-    monkeypatch.setenv("FORMULA_AUTOMATION_API_KEY", "test-key")
     get_settings.cache_clear()
     engine = dbmod.configure(url)
     Base.metadata.drop_all(engine)
@@ -80,6 +78,9 @@ class Api:
 
     def patch(self, url, **kw):
         return self.c.patch(url, headers=self._h(), **kw)
+
+    def delete(self, url, **kw):
+        return self.c.delete(url, headers=self._h(), **kw)
 
 
 @pytest.fixture

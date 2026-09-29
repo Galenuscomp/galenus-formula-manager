@@ -55,6 +55,20 @@ class UserAISettings(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
 
 
+class SourceAccount(Base):
+    """The pharmacy's login to a formula source (CompoundingToday, MEDISCA), used by
+    the worker to download PDFs. Both fields are encrypted (app.crypto); the
+    password is never sent back to the browser."""
+
+    __tablename__ = "source_accounts"
+
+    source: Mapped[str] = mapped_column(String(40), primary_key=True)
+    username_encrypted: Mapped[str] = mapped_column(Text)
+    password_encrypted: Mapped[str] = mapped_column(Text)
+    updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+
+
 class AuthSession(TimestampMixin, Base):
     __tablename__ = "auth_sessions"
 
@@ -145,6 +159,8 @@ class Job(TimestampMixin, Base):
     source_document_id: Mapped[str | None] = mapped_column(ForeignKey("source_documents.id"))
     # Extraction jobs run with this user's AI settings (server default when unset).
     requested_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
+    # Search jobs: the exact formula to download, {formula_id, title, url}; none = keyword search.
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     # Queued | Running | Completed | No results | Failed | Cooldown | Cancelled
     status: Mapped[str] = mapped_column(String(20), default="Queued", index=True)
     attempts: Mapped[int] = mapped_column(Integer, default=0)

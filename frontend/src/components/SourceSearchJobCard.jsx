@@ -8,6 +8,7 @@ export default function SourceSearchJobCard({ job, onRetry, onCancel, busy }) {
   const config = getJobStatusConfig(job.status);
   const tones = getJobToneClasses(config.tone);
   const active = isJobActive(job.status);
+  const wanted = job.payload?.formula_id ? job.payload : null; // a specific catalog formula
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -16,11 +17,17 @@ export default function SourceSearchJobCard({ job, onRetry, onCancel, busy }) {
           <SourceLabel source={job.source_name} />
           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${tones.badge}`}>
             {active && <Loader2 className="w-3 h-3 animate-spin" />}
-            {job.status === "Running" && job.source_name ? `Searching ${job.source_name}` : config.label}
+            {job.status === "Running" && job.source_name
+              ? `${wanted ? "Downloading from" : "Searching"} ${job.source_name}` : config.label}
           </span>
         </div>
         <span className="text-xs text-slate-400 whitespace-nowrap">{fromNow(job.finished_at || job.started_at || job.created_at)}</span>
       </div>
+      {wanted && (
+        <p className="text-xs text-slate-600 mb-2">
+          <span className="font-mono text-slate-400">{wanted.formula_id}</span> {wanted.title}
+        </p>
+      )}
       <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-3">
         <div className={`h-full rounded-full transition-all duration-500 ${tones.bar} ${active ? "animate-pulse" : ""}`}
           style={{ width: `${config.progress}%` }} />
@@ -33,7 +40,7 @@ export default function SourceSearchJobCard({ job, onRetry, onCancel, busy }) {
         <div className="flex gap-2">
           {isJobRetryable(job.status) && onRetry && (
             <Button variant="outline" size="sm" disabled={busy} onClick={() => onRetry(job)}>
-              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Retry search
+              <RotateCcw className="w-3.5 h-3.5 mr-1" /> {wanted ? "Retry download" : "Retry search"}
             </Button>
           )}
           {active && onCancel && (

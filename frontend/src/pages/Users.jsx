@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { ErrorBlock, ErrorList, LoadingBlock } from "@/components/PageState";
 import CatalogImportCard from "@/components/CatalogImportCard";
 import PasswordLinkDialog from "@/components/PasswordLinkDialog";
+import SourceAccountsCard from "@/components/SourceAccountsCard";
 import { useAuth } from "@/lib/AuthContext";
 
 const ROLES = [
@@ -167,6 +168,7 @@ export default function Users() {
           ))}
         </ul>
       )}
+      <SourceAccountsCard />
       <CatalogImportCard />
       <UserDialog open={dialog.open} editing={dialog.editing}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}

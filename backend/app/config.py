@@ -27,11 +27,6 @@ class Settings(BaseSettings):
     openai_model: str | None = None
     ai_timeout_seconds: float = 240.0
 
-    # External automation worker that downloads formula PDFs (CompoundingToday).
-    formula_automation_url: str | None = None
-    formula_automation_api_key: str | None = None
-    automation_timeout_seconds: float = 150.0
-
     job_lease_seconds: int = 420
     job_max_attempts: int = 3
     worker_poll_seconds: float = 2.0

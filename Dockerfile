@@ -8,13 +8,16 @@ RUN npm run build
 
 # ---- runtime ----
 FROM python:3.12-slim
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 DATA_DIR=/data PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN apt-get update \
  && apt-get install -y --no-install-recommends fonts-dejavu-core \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY backend/pyproject.toml ./
 RUN pip install --no-cache-dir $(python -c "import tomllib; print(' '.join(tomllib.load(open('pyproject.toml','rb'))['project']['dependencies']))")
+# Headless Chromium for downloading PDFs from source websites (app/search/compounding_today.py).
+RUN python -m playwright install --with-deps chromium \
+ && rm -rf /var/lib/apt/lists/*
 COPY backend/app ./app
 COPY backend/migrations ./migrations
 COPY backend/alembic.ini ./

@@ -77,6 +77,16 @@ class RequestCreateIn(Strict):
 
 class RetrySearchIn(Strict):
     source_name: str = Field(max_length=120)
+    # Retry the download of this exact formula; empty: the request's catalog formula or a keyword search.
+    formula_id: str = Field(default="", max_length=64)
+    title: str = Field(default="", max_length=1000)
+    url: str = Field(default="", max_length=2000)
+
+
+class SourceAccountIn(Strict):
+    username: str = Field(min_length=1, max_length=200)
+    # Omit to keep the saved password.
+    password: str | None = Field(default=None, max_length=200)
 
 
 class SourceUpdateIn(Strict):
