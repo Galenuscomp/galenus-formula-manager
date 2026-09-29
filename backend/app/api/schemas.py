@@ -43,6 +43,7 @@ class UserCreateIn(Strict):
     full_name: str = Field(min_length=1, max_length=200)
     role: Literal["admin", "pharmacist", "technician"]
     licence_number: str | None = Field(default=None, max_length=64)
+    max_pharmacies: int = Field(default=1, ge=0, le=20)
     # Omit to create the user with an invitation link where they choose their own.
     password: str | None = Field(default=None, max_length=200)
 
@@ -52,6 +53,7 @@ class UserUpdateIn(Strict):
     full_name: str | None = Field(default=None, min_length=1, max_length=200)
     role: Literal["admin", "pharmacist", "technician"] | None = None
     licence_number: str | None = Field(default=None, max_length=64)
+    max_pharmacies: int | None = Field(default=None, ge=0, le=20)
     is_active: bool | None = None
     password: str | None = Field(default=None, max_length=200)
 
@@ -167,3 +169,16 @@ class DecisionIn(Strict):
     decision: Literal["approved", "rejected", "returned"]
     notes: str = Field(default="", max_length=5000)
     content_sha256: str = Field(min_length=64, max_length=64)
+    # The approving pharmacist's pharmacy that heads the approved PDF.
+    pharmacy_id: str | None = Field(default=None, max_length=36)
+
+
+class PharmacyIn(Strict):
+    name: str = Field(min_length=1, max_length=200)
+    address: str = Field(default="", max_length=500)
+    phone: str = Field(default="", max_length=50)
+
+
+class TranslateIn(Strict):
+    # Draft field -> English text, as currently in the editor (may be unsaved).
+    fields: dict[str, str] = Field(max_length=20)

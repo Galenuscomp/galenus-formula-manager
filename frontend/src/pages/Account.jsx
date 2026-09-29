@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import AISettingsCard from "@/components/AISettingsCard";
 import PasswordInput from "@/components/PasswordInput";
+import PharmaciesCard from "@/components/PharmaciesCard";
 import { ErrorList } from "@/components/PageState";
 import PasswordRules from "@/components/PasswordRules";
 import { passwordRules } from "@/lib/passwordRules";
@@ -70,6 +71,7 @@ export default function Account() {
           {change.isPending ? "Saving…" : "Change password"}
         </Button>
       </form>
+      {user.role === "pharmacist" && <PharmaciesCard />}
       <AISettingsCard />
     </div>
   );

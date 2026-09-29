@@ -38,6 +38,23 @@ class User(TimestampMixin, Base):
     licence_number: Mapped[str | None] = mapped_column(String(64))
     password_hash: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # How many pharmacies (branches) this pharmacist may set up; decided by an admin.
+    max_pharmacies: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+
+
+class Pharmacy(TimestampMixin, Base):
+    """A pharmacy (branch) of a pharmacist. The approving pharmacist picks one of theirs, and
+    its name, address and logo head the approved master formula PDF."""
+
+    __tablename__ = "pharmacies"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    owner_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    address: Mapped[str] = mapped_column(String(500), default="")
+    phone: Mapped[str] = mapped_column(String(50), default="")
+    logo_sha256: Mapped[str | None] = mapped_column(String(64))
+    logo_type: Mapped[str | None] = mapped_column(String(10))  # png | jpeg
 
 
 class UserAISettings(Base):
@@ -233,6 +250,9 @@ class Decision(TimestampMixin, Base):
     content_sha256: Mapped[str] = mapped_column(String(64))
     pdf_sha256: Mapped[str | None] = mapped_column(String(64))
     pdf_file: Mapped[str | None] = mapped_column(String(300))
+    # Copy of the approving pharmacist's pharmacy at approval time:
+    # {id, name, address, phone, logo_sha256, logo_type}. Later edits do not change it.
+    pharmacy: Mapped[dict[str, Any] | None] = mapped_column(JSON)
 
 
 class CatalogEntry(Base):

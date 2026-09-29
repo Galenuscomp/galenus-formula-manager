@@ -5,7 +5,10 @@ from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 
 from app import audit, services
-from app.api import serialize
+from app.ai import get_extractor
+from app.ai.base import ExtractionError
+from app.ai.translate import TRANSLATABLE_FIELDS
+from app.api import pharmacies, serialize
 from app.api.deps import DB, CurrentUser, Pharmacist, Preparer
 from app.api.schemas import (
     CatalogRefIn,
@@ -16,6 +19,7 @@ from app.api.schemas import (
     RetrySearchIn,
     RowVersionIn,
     SourceUpdateIn,
+    TranslateIn,
 )
 from app.config import get_settings
 from app.models import Draft, Job, SearchRequest, SourceDocument
@@ -248,6 +252,32 @@ def extract(draft_id: str, user: Preparer, db: DB):
     return {"queued": len(jobs)}
 
 
+@router.post("/drafts/{draft_id}/translate")
+def translate_draft(draft_id: str, body: TranslateIn, user: Preparer, db: DB):
+    """Hebrew translation of the draft's text fields with the user's AI provider. Nothing is
+    saved: the pharmacist reviews and edits it, applies it, then saves the draft as usual."""
+    draft = _get(db, Draft, draft_id)
+    if not services.can_edit(draft, user):
+        raise RuleViolation("This draft cannot be edited now.", 409)
+    fields = {k: v for k, v in body.fields.items() if k in TRANSLATABLE_FIELDS and v.strip()}
+    if not fields:
+        raise RuleViolation("There is no text to translate.")
+    if sum(len(v) for v in fields.values()) > 60_000:
+        raise RuleViolation("The text is too long to translate in one go.")
+    try:
+        config = services.ai_config_for(db, user.id)
+        if config is None:
+            raise RuleViolation("AI is turned off for your account. Choose a provider in Account settings.")
+        translated = get_extractor(config, get_settings()).translate(fields)
+    except ExtractionError as exc:
+        raise RuleViolation(str(exc)) from exc
+    audit.record(db, user.id, "draft_translated", "draft", draft.id, fields=sorted(fields),
+                 provider=config.provider, model=config.model)
+    _commit(db)
+    return {"translations": {k: str(translated.get(k) or "") for k in fields},
+            "provider": config.provider, "model": config.model}
+
+
 @router.post("/drafts/{draft_id}/submit")
 def submit(draft_id: str, body: RowVersionIn, user: Preparer, db: DB):
     draft = _get(db, Draft, draft_id)
@@ -260,10 +290,13 @@ def submit(draft_id: str, body: RowVersionIn, user: Preparer, db: DB):
 @router.post("/drafts/{draft_id}/decision")
 def decide(draft_id: str, body: DecisionIn, user: Pharmacist, db: DB):
     draft = _get(db, Draft, draft_id)
+    pharmacy = _issuing_pharmacy(db, user, body.pharmacy_id) if body.decision == "approved" else None
     decision = services.decide(db, user, draft, body.decision, body.notes, body.content_sha256)
     if decision.decision == "approved":
+        decision.pharmacy = pharmacies.snapshot(pharmacy) if pharmacy else None
         docs = [d for d in (db.get(SourceDocument, i) for i in draft.source_document_ids) if d]
-        pdf = render_formula_pdf(draft, draft.request, docs, decision, decision.content_sha256)
+        pdf = render_formula_pdf(draft, draft.request, docs, decision, decision.content_sha256,
+                                 pharmacy=pharmacies.for_pdf(decision.pharmacy))
         sha, _ = store_pdf(pdf)
         decision.pdf_sha256 = sha
     audit.record(db, user.id, f"draft_{decision.decision}", "draft", draft.id, content_sha256=decision.content_sha256)
@@ -290,15 +323,33 @@ def archive(draft_id: str, user: Pharmacist, db: DB):
     return serialize.draft_summary(draft)
 
 
+def _issuing_pharmacy(db, user, pharmacy_id: str | None):
+    """The approving pharmacist's pharmacy for the PDF header: the one chosen, or their only one."""
+    owned = pharmacies.mine(db, user)
+    if pharmacy_id:
+        chosen = next((p for p in owned if p.id == pharmacy_id), None)
+        if chosen is None:
+            raise RuleViolation("Choose one of your own pharmacies.")
+        return chosen
+    if len(owned) > 1:
+        raise RuleViolation("Choose which of your pharmacies issues this master formula.")
+    return owned[0] if owned else None
+
+
 @router.get("/drafts/{draft_id}/pdf")
-def draft_pdf(draft_id: str, _: CurrentUser, db: DB):
+def draft_pdf(draft_id: str, user: CurrentUser, db: DB,
+              pharmacy_id: Annotated[str | None, Query(max_length=36)] = None):
     draft = _get(db, Draft, draft_id)
     approval = services.approval_of(draft)
     if approval and approval.pdf_sha256:
         data = read_pdf(approval.pdf_sha256)
     else:
+        # Preview with the viewer's chosen (or first) pharmacy, as it would look when they approve.
+        owned = pharmacies.mine(db, user)
+        preview = next((p for p in owned if p.id == pharmacy_id), owned[0] if owned else None)
         docs = [d for d in (db.get(SourceDocument, i) for i in draft.source_document_ids) if d]
-        data = render_formula_pdf(draft, draft.request, docs, None, services.content_hash(draft.content))
+        data = render_formula_pdf(draft, draft.request, docs, None, services.content_hash(draft.content),
+                                  pharmacy=pharmacies.for_pdf(pharmacies.snapshot(preview)) if preview else None)
     name = f"{draft.number}-v{draft.version}.pdf"
     return Response(
         data, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}"'}

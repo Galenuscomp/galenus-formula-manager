@@ -10,6 +10,9 @@ class FakeExtractor:
     def verify(self) -> None:
         pass
 
+    def translate(self, fields: dict[str, str]) -> dict[str, str]:
+        return {k: f"[עברית] {v}" for k, v in fields.items()}
+
     def extract(self, pdf: bytes, filename: str) -> ExtractionResult:
         return ExtractionResult(
             model=self.model,

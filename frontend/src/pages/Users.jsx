@@ -34,8 +34,9 @@ function UserDialog({ open, onOpenChange, editing, onSaved, onLink }) {
     if (open) {
       setErrors(null);
       setForm(editing
-        ? { email: editing.email, full_name: editing.full_name, role: editing.role, licence_number: editing.licence_number || "" }
-        : { email: "", full_name: "", role: "technician", licence_number: "" });
+        ? { email: editing.email, full_name: editing.full_name, role: editing.role, licence_number: editing.licence_number || "",
+            max_pharmacies: editing.max_pharmacies ?? 1 }
+        : { email: "", full_name: "", role: "technician", licence_number: "", max_pharmacies: 1 });
     }
   }, [open, editing]);
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -87,6 +88,15 @@ function UserDialog({ open, onOpenChange, editing, onSaved, onLink }) {
             <Input id="u-licence" value={form.licence_number || ""} onChange={(e) => update("licence_number", e.target.value)} className="h-11 text-base" />
             <p className="text-xs text-slate-400">Required for pharmacists to approve. Recorded on every approval they make.</p>
           </div>
+          {form.role === "pharmacist" && (
+            <div className="space-y-2">
+              <Label htmlFor="u-maxph">Max pharmacies (branches)</Label>
+              <Input id="u-maxph" type="number" min={0} max={20} value={form.max_pharmacies ?? 1}
+                onChange={(e) => update("max_pharmacies", Math.max(0, Math.min(20, Number(e.target.value) || 0)))}
+                className="h-11 text-base w-32" />
+              <p className="text-xs text-slate-400">How many pharmacies this pharmacist can set up for the master formula header.</p>
+            </div>
+          )}
           {editing ? (
             <div className="rounded-lg border border-slate-200 p-3 space-y-2">
               <p className="text-sm font-medium text-slate-900">Password</p>
@@ -156,6 +166,7 @@ export default function Users() {
                 <p className="text-sm text-slate-500 truncate">{u.email}</p>
                 <p className="text-xs text-slate-400">
                   {u.role}{u.licence_number ? ` · licence ${u.licence_number}` : ""}
+                  {u.role === "pharmacist" ? ` · up to ${u.max_pharmacies} ${u.max_pharmacies === 1 ? "pharmacy" : "pharmacies"}` : ""}
                   {u.ai_provider && u.ai_provider !== "default" ? ` · AI: ${AI_LABELS[u.ai_provider] || u.ai_provider}` : ""}
                 </p>
                 {!u.has_password && <p className="text-xs text-amber-700">Invitation pending — has not set a password yet</p>}

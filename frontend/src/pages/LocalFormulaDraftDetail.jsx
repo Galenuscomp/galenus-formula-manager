@@ -2,12 +2,15 @@ import React from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertCircle, Archive, ArrowLeft, CheckCircle2, Download, FileText, GitBranch, Loader2, RotateCcw,
+  AlertCircle, Archive, ArrowLeft, CheckCircle2, Download, FileText, GitBranch, Languages, Loader2, RotateCcw,
   Save, Send, ShieldCheck, XCircle,
 } from "lucide-react";
 import { api } from "@/api/client";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import TranslateDialog from "@/components/TranslateDialog";
 import { useToast } from "@/components/ui/use-toast";
 import ActiveIngredientsManager from "@/components/ActiveIngredientsManager";
 import DraftEditForm from "@/components/DraftEditForm";
@@ -56,7 +59,18 @@ export default function LocalFormulaDraftDetail() {
   const [dirty, setDirty] = React.useState(false);
   const [actionErrors, setActionErrors] = React.useState(null);
   const [decisionNotes, setDecisionNotes] = React.useState("");
+  const [translating, setTranslating] = React.useState(false);
   const loadedVersion = React.useRef(null);
+
+  // The approving pharmacist's pharmacies; one of them heads the approved PDF.
+  const { data: pharmacyData } = useQuery({
+    queryKey: ["pharmacies"], queryFn: () => api.get("/api/pharmacies"), enabled: user?.role === "pharmacist",
+  });
+  const pharmacies = pharmacyData?.items || [];
+  const [pharmacyId, setPharmacyId] = React.useState(null);
+  React.useEffect(() => {
+    if (!pharmacyId && pharmacies.length === 1) setPharmacyId(pharmacies[0].id);
+  }, [pharmacies, pharmacyId]);
 
   // Load server content into the form when the draft (or its saved version) changes,
   // but never overwrite unsaved local edits because of background polling.
@@ -137,6 +151,7 @@ export default function LocalFormulaDraftDetail() {
     mutationFn: (decision) =>
       api.post(`/api/drafts/${id}/decision`, {
         decision, notes: decisionNotes, content_sha256: draft.content_sha256,
+        ...(decision === "approved" && pharmacyId ? { pharmacy_id: pharmacyId } : {}),
       }),
     onSuccess: (updated, decision) => {
       setActionErrors(null);
@@ -225,7 +240,7 @@ export default function LocalFormulaDraftDetail() {
   const isApproved = draft.status === "Approved";
   const approval = draft.approval;
   const busy = save.isPending || submit.isPending || decide.isPending || revise.isPending || archive.isPending;
-  const pdfUrl = `/api/drafts/${id}/pdf`;
+  const pdfUrl = `/api/drafts/${id}/pdf${!isApproved && pharmacyId ? `?pharmacy_id=${pharmacyId}` : ""}`;
 
   return (
     <div className="p-4 sm:p-6 md:p-10 max-w-5xl mx-auto pb-24 md:pb-10">
@@ -258,6 +273,7 @@ export default function LocalFormulaDraftDetail() {
               <p className="text-sm font-semibold text-emerald-800">Approved Master Formula · version {draft.version}</p>
               <p className="text-sm text-emerald-700 mt-0.5">
                 Approved by {approval.actor_name} (licence {approval.actor_licence}) on {formatDateTime(approval.created_at)}
+                {approval.pharmacy_name && ` · ${approval.pharmacy_name}`}
               </p>
               <p className="text-xs text-emerald-700/80 mt-1 break-all">Content SHA-256 {approval.content_sha256}</p>
             </div>
@@ -287,10 +303,29 @@ export default function LocalFormulaDraftDetail() {
               to add it (Users → your name → Pharmacist licence number), then reload this page.
             </div>
           )}
+          {pharmacies.length > 0 && (
+            <div className="space-y-1.5">
+              <Label>Issued by pharmacy</Label>
+              <Select value={pharmacyId || ""} onValueChange={setPharmacyId}>
+                <SelectTrigger className="h-11"><SelectValue placeholder="Choose your pharmacy" /></SelectTrigger>
+                <SelectContent>
+                  {pharmacies.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-400">Its name, address and logo head the approved PDF.</p>
+            </div>
+          )}
+          {pharmacies.length === 0 && (
+            <p className="text-xs text-slate-500">
+              Tip: add your pharmacy's name, address and logo under <Link to="/account" className="text-teal-700 underline">Account</Link> to
+              print them on approved master formulas.
+            </p>
+          )}
           <Textarea rows={3} value={decisionNotes} onChange={(e) => setDecisionNotes(e.target.value)}
             placeholder="Decision notes (required to reject or return)" className="text-base" />
           <div className="grid grid-cols-1 sm:flex gap-2">
-            <Button onClick={() => decide.mutate("approved")} disabled={busy || !user?.licence_number}
+            <Button onClick={() => decide.mutate("approved")}
+              disabled={busy || !user?.licence_number || (pharmacies.length > 0 && !pharmacyId)}
               className="bg-emerald-600 hover:bg-emerald-700 h-11">
               {decide.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
               Approve Master Formula
@@ -330,9 +365,22 @@ export default function LocalFormulaDraftDetail() {
       </div>
 
       <div className="mb-6">
+        {perms.can_edit && (
+          <div className="flex justify-end mb-2">
+            <Button variant="outline" onClick={() => setTranslating(true)} disabled={config?.ai_enabled === false}
+              title={config?.ai_enabled === false ? "AI is turned off for your account" : undefined}>
+              <Languages className="w-4 h-4 mr-2" /> Translate to Hebrew
+            </Button>
+          </div>
+        )}
         <DraftEditForm form={form} onChange={updateForm} locked={locked}
           hasActiveIngredients={activeIngredients.length > 0} isRevision={draft.version > 1} />
       </div>
+      <TranslateDialog open={translating} onOpenChange={setTranslating} draftId={draft.id} form={form}
+        onApply={(hebrew) => {
+          updateForm((f) => ({ ...f, ...hebrew }));
+          toast({ title: "Hebrew applied", description: "Review the fields, then save the draft." });
+        }} />
 
       {!isApproved && draft.approval_errors.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">

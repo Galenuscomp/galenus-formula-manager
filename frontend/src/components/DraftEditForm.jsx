@@ -57,7 +57,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
               value={form.active_ingredient || ""}
               onChange={(e) => update("active_ingredient", e.target.value)}
               placeholder="e.g. Metronidazole"
-              disabled={locked}
+              dir="auto" disabled={locked}
             />
           </div>
         )}
@@ -68,7 +68,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
             value={form.proposed_formula_name || ""}
             onChange={(e) => update("proposed_formula_name", e.target.value)}
             placeholder="e.g. Metronidazole 50 mg/mL Topical Cream"
-            disabled={locked}
+            dir="auto" disabled={locked}
           />
         </div>
         {!hasActiveIngredients && (
@@ -79,7 +79,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
               value={form.strength || ""}
               onChange={(e) => update("strength", e.target.value)}
               placeholder="e.g. 50 mg/mL"
-              disabled={locked}
+              dir="auto" disabled={locked}
             />
           </div>
         )}
@@ -91,7 +91,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
             value={form.dosage_form || ""}
             onChange={(e) => update("dosage_form", e.target.value)}
             placeholder="Select or type"
-            disabled={locked}
+            dir="auto" disabled={locked}
           />
           <datalist id="draft-dosage-forms">
             {dosageForms.map((f) => <option key={f} value={f} />)}
@@ -104,7 +104,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
             value={form.final_quantity || ""}
             onChange={(e) => update("final_quantity", e.target.value)}
             placeholder="e.g. 200 mL"
-            disabled={locked}
+            dir="auto" disabled={locked}
           />
         </div>
         <div className="space-y-2 md:col-span-2">
@@ -115,7 +115,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
             onChange={(e) => update("storage_conditions", e.target.value)}
             rows={2}
             placeholder="e.g. Refrigerate, 2-8°C"
-            disabled={locked}
+            dir="auto" disabled={locked}
           />
         </div>
         <div className="space-y-2 md:col-span-2">
@@ -126,7 +126,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
             onChange={(e) => update("bud", e.target.value)}
             rows={2}
             placeholder="e.g. 30 days"
-            disabled={locked}
+            dir="auto" disabled={locked}
           />
         </div>
         {textareaFields.filter((f) => !f.revisionOnly || isRevision).map(({ key, label, rows, placeholder }) => (
@@ -138,7 +138,7 @@ export default function DraftEditForm({ form, onChange, locked = false, hasActiv
               onChange={(e) => update(key, e.target.value)}
               rows={rows}
               placeholder={placeholder}
-              disabled={locked}
+              dir="auto" disabled={locked}
             />
           </div>
         ))}

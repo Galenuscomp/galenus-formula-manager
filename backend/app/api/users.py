@@ -37,6 +37,7 @@ def create_user(body: UserCreateIn, actor: Admin, db: DB):
         full_name=body.full_name.strip(),
         role=body.role,
         licence_number=(body.licence_number or "").strip() or None,
+        max_pharmacies=body.max_pharmacies,
         password_hash=hash_password(body.password) if body.password is not None else UNUSABLE_PASSWORD,
     )
     db.add(user)

@@ -16,6 +16,7 @@ def user(u: User) -> dict[str, Any]:
         "role": u.role,
         "licence_number": u.licence_number,
         "is_active": u.is_active,
+        "max_pharmacies": u.max_pharmacies,
     }
 
 
@@ -91,6 +92,7 @@ def decision(d: Decision) -> dict[str, Any]:
         "notes": d.notes,
         "content_sha256": d.content_sha256,
         "pdf_sha256": d.pdf_sha256,
+        "pharmacy_name": (d.pharmacy or {}).get("name"),
         "created_at": iso(d.created_at),
     }
 
