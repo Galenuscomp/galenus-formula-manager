@@ -66,7 +66,8 @@ export default function Login() {
           </Button>
         </form>
         <p className="mt-6 text-xs text-slate-400 text-center">
-          Accounts are created by your administrator.
+          Forgot your password? Ask your administrator for a reset link.
+          <br />Accounts are created by your administrator.
         </p>
       </div>
     </div>

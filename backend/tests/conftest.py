@@ -10,7 +10,7 @@ from app.models import User
 from app.security import hash_password
 
 PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
-PASSWORD = "correct horse battery"
+PASSWORD = "correct horse battery 7"
 
 
 @pytest.fixture

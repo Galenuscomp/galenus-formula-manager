@@ -7,6 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import AISettingsCard from "@/components/AISettingsCard";
 import { ErrorList } from "@/components/PageState";
+import PasswordRules from "@/components/PasswordRules";
+import { passwordRules } from "@/lib/passwordRules";
 import { useAuth } from "@/lib/AuthContext";
 
 export default function Account() {
@@ -24,7 +26,8 @@ export default function Account() {
   const submit = (e) => {
     e.preventDefault();
     if (form.new_password !== form.confirm) return setErrors(["New passwords do not match."]);
-    if (form.new_password.length < 10) return setErrors(["Use at least 10 characters."]);
+    const broken = passwordRules(form.new_password, user.email).filter((r) => !r.ok);
+    if (broken.length) return setErrors(broken.map((r) => `Password: ${r.label.toLowerCase()}.`));
     setErrors(null);
     change.mutate();
   };
@@ -45,13 +48,14 @@ export default function Account() {
         </h2>
         {[
           ["current_password", "Current password", "current-password"],
-          ["new_password", "New password (min. 10 characters)", "new-password"],
+          ["new_password", "New password", "new-password"],
           ["confirm", "Repeat new password", "new-password"],
         ].map(([k, label, ac]) => (
           <div key={k} className="space-y-2">
             <Label htmlFor={k}>{label}</Label>
             <Input id={k} type="password" autoComplete={ac} required value={form[k]}
               onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))} className="h-11 text-base" />
+            {k === "new_password" && <PasswordRules password={form.new_password} email={user.email} />}
           </div>
         ))}
         <ErrorList errors={errors} />

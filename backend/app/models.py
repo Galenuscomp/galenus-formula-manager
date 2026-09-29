@@ -67,6 +67,23 @@ class AuthSession(TimestampMixin, Base):
     user: Mapped[User] = relationship(lazy="joined")
 
 
+class PasswordToken(TimestampMixin, Base):
+    """One-time link for choosing a password: an invitation for a new user or a
+    reset issued by an admin. Only the token's digest is stored."""
+
+    __tablename__ = "password_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_digest: Mapped[str] = mapped_column(String(64), unique=True)
+    purpose: Mapped[str] = mapped_column(String(10))  # invite | reset
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime())
+    used_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    created_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+
+    user: Mapped[User] = relationship(lazy="joined", foreign_keys=[user_id])
+
+
 class SearchRequest(TimestampMixin, Base):
     __tablename__ = "search_requests"
 

@@ -19,6 +19,7 @@ const LocalFormulaDraftDetail = React.lazy(() => import("@/pages/LocalFormulaDra
 const ApprovedLibrary = React.lazy(() => import("@/pages/ApprovedLibrary"));
 const Users = React.lazy(() => import("@/pages/Users"));
 const Account = React.lazy(() => import("@/pages/Account"));
+const SetPassword = React.lazy(() => import("@/pages/SetPassword"));
 
 function LoginRoute() {
   const { isAuthenticated, isLoadingAuth } = useAuth();
@@ -35,6 +36,7 @@ export default function App() {
           <Suspense fallback={<Spinner />}>
             <Routes>
               <Route path="/login" element={<LoginRoute />} />
+              <Route path="/set-password" element={<SetPassword />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<Layout />}>
                   <Route path="/" element={<Home />} />

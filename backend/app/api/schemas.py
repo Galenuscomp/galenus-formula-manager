@@ -15,9 +15,19 @@ class LoginIn(Strict):
     password: str = Field(max_length=200)
 
 
+# New passwords are checked by security.password_problems, which gives readable messages.
 class PasswordChangeIn(Strict):
     current_password: str = Field(max_length=200)
-    new_password: str = Field(min_length=10, max_length=200)
+    new_password: str = Field(max_length=200)
+
+
+class PasswordLinkCheckIn(Strict):
+    token: str = Field(min_length=20, max_length=100)
+
+
+class PasswordLinkSetIn(Strict):
+    token: str = Field(min_length=20, max_length=100)
+    new_password: str = Field(max_length=200)
 
 
 class AISettingsIn(Strict):
@@ -33,7 +43,8 @@ class UserCreateIn(Strict):
     full_name: str = Field(min_length=1, max_length=200)
     role: Literal["admin", "pharmacist", "technician"]
     licence_number: str | None = Field(default=None, max_length=64)
-    password: str = Field(min_length=10, max_length=200)
+    # Omit to create the user with an invitation link where they choose their own.
+    password: str | None = Field(default=None, max_length=200)
 
 
 class UserUpdateIn(Strict):
@@ -41,7 +52,7 @@ class UserUpdateIn(Strict):
     role: Literal["admin", "pharmacist", "technician"] | None = None
     licence_number: str | None = Field(default=None, max_length=64)
     is_active: bool | None = None
-    password: str | None = Field(default=None, min_length=10, max_length=200)
+    password: str | None = Field(default=None, max_length=200)
 
 
 class RequestCreateIn(Strict):

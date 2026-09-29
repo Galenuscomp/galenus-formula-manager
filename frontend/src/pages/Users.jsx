@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { ErrorBlock, ErrorList, LoadingBlock } from "@/components/PageState";
+import PasswordLinkDialog from "@/components/PasswordLinkDialog";
 import { useAuth } from "@/lib/AuthContext";
 
 const ROLES = [
@@ -22,27 +23,35 @@ const ROLES = [
 // Users on the server default show nothing; the others show their own provider.
 const AI_LABELS = { openai: "OpenAI (own key)", anthropic: "Anthropic (own key)", none: "off" };
 
-function UserDialog({ open, onOpenChange, editing, onSaved }) {
+// Passwords are never typed by the admin: new users get an invitation link and
+// forgotten passwords a reset link, where the user chooses their own.
+function UserDialog({ open, onOpenChange, editing, onSaved, onLink }) {
   const [form, setForm] = React.useState({});
   const [errors, setErrors] = React.useState(null);
   React.useEffect(() => {
     if (open) {
       setErrors(null);
       setForm(editing
-        ? { full_name: editing.full_name, role: editing.role, licence_number: editing.licence_number || "", password: "" }
-        : { email: "", full_name: "", role: "technician", licence_number: "", password: "" });
+        ? { full_name: editing.full_name, role: editing.role, licence_number: editing.licence_number || "" }
+        : { email: "", full_name: "", role: "technician", licence_number: "" });
     }
   }, [open, editing]);
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const onError = (err) => setErrors(err.errors?.length ? err.errors : [err.message]);
 
   const mutation = useMutation({
-    mutationFn: () => {
-      const body = { ...form };
-      if (editing && !body.password) delete body.password;
-      return editing ? api.patch(`/api/users/${editing.id}`, body) : api.post("/api/users", body);
+    mutationFn: () => (editing ? api.patch(`/api/users/${editing.id}`, form) : api.post("/api/users", form)),
+    onSuccess: (saved) => {
+      onSaved();
+      onOpenChange(false);
+      if (saved.password_link) onLink(saved.password_link, saved);
     },
-    onSuccess: () => { onSaved(); onOpenChange(false); },
-    onError: (err) => setErrors(err.errors?.length ? err.errors : [err.message]),
+    onError,
+  });
+  const resetLink = useMutation({
+    mutationFn: () => api.post(`/api/users/${editing.id}/password-link`),
+    onSuccess: (link) => { onSaved(); onOpenChange(false); onLink(link, editing); },
+    onError,
   });
 
   return (
@@ -72,11 +81,23 @@ function UserDialog({ open, onOpenChange, editing, onSaved }) {
             <Input id="u-licence" value={form.licence_number || ""} onChange={(e) => update("licence_number", e.target.value)} className="h-11 text-base" />
             <p className="text-xs text-slate-400">Required for pharmacists to approve. Recorded on every approval they make.</p>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="u-pass">{editing ? "New password (optional)" : "Initial password"}</Label>
-            <Input id="u-pass" type="password" autoComplete="new-password" minLength={10} required={!editing}
-              value={form.password || ""} onChange={(e) => update("password", e.target.value)} className="h-11 text-base" />
-          </div>
+          {editing ? (
+            <div className="rounded-lg border border-slate-200 p-3 space-y-2">
+              <p className="text-sm font-medium text-slate-900">Password</p>
+              <p className="text-xs text-slate-500">
+                {editing.has_password
+                  ? "Forgot their password? Create a one-time link where they choose a new one. Their current password and sessions stop working once they use it."
+                  : "Has not chosen a password yet. Create a new invitation link if the first one expired or got lost."}
+              </p>
+              <Button type="button" variant="outline" disabled={resetLink.isPending || !editing.is_active} onClick={() => resetLink.mutate()}>
+                {resetLink.isPending ? "Creating…" : editing.has_password ? "Create password reset link" : "Create new invitation link"}
+              </Button>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">
+              After saving you get an invitation link to send to the user. They open it and choose their own password (valid 3 days).
+            </p>
+          )}
           <ErrorList errors={errors} />
           <DialogFooter className="gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -95,6 +116,7 @@ export default function Users() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [dialog, setDialog] = React.useState({ open: false, editing: null });
+  const [shown, setShown] = React.useState(null); // { link, user } just created
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["users"], queryFn: () => api.get("/api/users"), enabled: isAdmin,
   });
@@ -130,6 +152,7 @@ export default function Users() {
                   {u.role}{u.licence_number ? ` · licence ${u.licence_number}` : ""}
                   {u.ai_provider && u.ai_provider !== "default" ? ` · AI: ${AI_LABELS[u.ai_provider] || u.ai_provider}` : ""}
                 </p>
+                {!u.has_password && <p className="text-xs text-amber-700">Invitation pending — has not set a password yet</p>}
               </button>
               <label className="flex items-center gap-2 text-xs text-slate-500">
                 {u.is_active ? "Active" : "Disabled"}
@@ -141,7 +164,9 @@ export default function Users() {
       )}
       <UserDialog open={dialog.open} editing={dialog.editing}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}
-        onSaved={() => { queryClient.invalidateQueries({ queryKey: ["users"] }); toast({ title: "User saved" }); }} />
+        onSaved={() => queryClient.invalidateQueries({ queryKey: ["users"] })}
+        onLink={(link, user) => setShown({ link, user })} />
+      <PasswordLinkDialog link={shown?.link} user={shown?.user} onClose={() => setShown(null)} />
     </div>
   );
 }

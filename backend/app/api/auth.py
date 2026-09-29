@@ -4,14 +4,14 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 from sqlalchemy import select
 
-from app import audit
+from app import audit, passwords
 from app.api import serialize
 from app.api.deps import COOKIE, DB, CurrentUser, check_origin
-from app.api.schemas import LoginIn, PasswordChangeIn
+from app.api.schemas import LoginIn, PasswordChangeIn, PasswordLinkCheckIn, PasswordLinkSetIn
 from app.config import get_settings
 from app.db import utcnow
 from app.models import AuthSession, User
-from app.security import hash_password, new_session_token, token_digest, verify_password
+from app.security import new_session_token, token_digest, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -66,10 +66,29 @@ def me(user: CurrentUser):
 def change_password(body: PasswordChangeIn, user: CurrentUser, db: DB):
     if not verify_password(user.password_hash, body.current_password):
         raise HTTPException(400, "Current password is incorrect")
-    user.password_hash = hash_password(body.new_password)
-    # Sign out every other session.
-    for s in db.scalars(select(AuthSession).where(AuthSession.user_id == user.id, AuthSession.revoked_at.is_(None))):
-        s.revoked_at = utcnow()
+    # Signs out every session, this one included.
+    passwords.set_password(db, user, body.new_password)
     audit.record(db, user.id, "password_changed", "user", user.id)
     db.commit()
     return {"ok": True, "signed_out": True}
+
+
+# Invitation and reset links (see app.passwords). No session needed: the token is the credential.
+
+
+@router.post("/password-link/check")
+def check_password_link(body: PasswordLinkCheckIn, request: Request, db: DB):
+    check_origin(request)
+    link = passwords.find_link(db, body.token)
+    return {"email": link.user.email, "full_name": link.user.full_name, "purpose": link.purpose}
+
+
+@router.post("/password-link")
+def use_password_link(body: PasswordLinkSetIn, request: Request, db: DB):
+    check_origin(request)
+    link = passwords.find_link(db, body.token)
+    passwords.set_password(db, link.user, body.new_password)
+    link.used_at = utcnow()
+    audit.record(db, link.user.id, f"password_set_by_{link.purpose}_link", "user", link.user.id)
+    db.commit()
+    return {"ok": True, "email": link.user.email}

@@ -45,6 +45,10 @@
    docker compose exec app python -m app.cli create-user --email you@pharmacy.co.il --name "Your Name" --role admin
    ```
    המנהל יוצר משתמשים נוספים במסך **Users**: רוקח (`pharmacist`, עם מספר רישיון) או טכנאי (`technician`).
+   המשתמש החדש מקבל קישור הזמנה חד-פעמי (3 ימים) ובוחר סיסמה בעצמו. שכח סיסמה? המנהל יוצר קישור איפוס (24 שעות) באותו מסך.
+   מנהל שננעל בחוץ: `docker compose exec app python -m app.cli password-link --email you@pharmacy.co.il`
+   מדפיס קישור איפוס, בלי להקליד סיסמה בקונסולה.
+   כללי סיסמה: לפחות 10 תווים, אות וספרה, בלי כתובת המייל.
 5. גיבוי לילי: `./deploy/backup.sh /backups` (דאמפ של המסד + קובצי ה-PDF).
 
 ## החלפת ספק AI
