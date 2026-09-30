@@ -28,6 +28,7 @@ export const TRANSLATABLE = [
 export default function TranslateDialog({ open, onOpenChange, draftId, form, onApply }) {
   const [rows, setRows] = React.useState([]);
   const [errors, setErrors] = React.useState(null);
+  const [sent, setSent] = React.useState(0);
   const translate = useMutation({
     mutationFn: (fields) => api.post(`/api/drafts/${draftId}/translate`, { fields }),
     onSuccess: (r) => setRows(TRANSLATABLE.filter(([k]) => k in r.translations).map(([k, label]) => (
@@ -40,6 +41,7 @@ export default function TranslateDialog({ open, onOpenChange, draftId, form, onA
     setRows([]);
     setErrors(null);
     const fields = Object.fromEntries(TRANSLATABLE.map(([k]) => [k, form[k] || ""]).filter(([, v]) => v.trim()));
+    setSent(Object.keys(fields).length);
     if (Object.keys(fields).length) translate.mutate(fields);
     else setErrors(["There is no text to translate yet."]);
     // Translate once per opening, with the text as it is at that moment.
@@ -65,6 +67,13 @@ export default function TranslateDialog({ open, onOpenChange, draftId, form, onA
         {translate.isPending && (
           <div className="py-12 flex flex-col items-center gap-2 text-slate-500 text-sm">
             <Loader2 className="w-6 h-6 animate-spin text-teal-600" /> Translating with AI… this can take up to a minute.
+          </div>
+        )}
+        {sent < TRANSLATABLE.length / 2 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Only {sent} of {TRANSLATABLE.length} fields have text, so only those are translated. If the source data
+            was extracted but not yet applied, close this, click <b>Apply</b> in the AI extraction panel above
+            (after reviewing any conflicts), then translate again.
           </div>
         )}
         <ErrorList errors={errors} />

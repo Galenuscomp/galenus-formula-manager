@@ -4,18 +4,25 @@ import logging
 import signal
 import threading
 import time
+from pathlib import Path
 
 from app import jobs
 from app.config import get_settings
 from app.db import session_factory
 
 log = logging.getLogger("worker")
+# Touched on every loop pass; the container health check (docker-compose.yml) reads its age.
+HEARTBEAT = Path("/tmp/worker-heartbeat")
 
 
 def loop(stop: threading.Event) -> None:
     settings = get_settings()
     last_recovery = 0.0
     while not stop.is_set():
+        try:
+            HEARTBEAT.touch()
+        except OSError:
+            pass
         try:
             with session_factory()() as db:
                 if time.monotonic() - last_recovery > 30:

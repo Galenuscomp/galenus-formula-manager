@@ -33,6 +33,14 @@ services:
     image: formula-manager:latest
     restart: unless-stopped
     command: ["python", "-m", "app.worker"]
+    # The image's health check probes the web API, which the worker does not serve. Instead:
+    # the worker loop touches a heartbeat file; a job may take a few minutes (lease: 7 min).
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,sys,time; sys.exit(time.time() - os.path.getmtime('/tmp/worker-heartbeat') > 480)"]
+      interval: 60s
+      timeout: 5s
+      retries: 2
+      start_period: 30s
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://fm:${POSTGRES_PASSWORD}@db:5432/fm
