@@ -1,10 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import func, or_, select
 
-from app import audit, services
+from app import audit, mail, services
 from app.ai import get_extractor
 from app.ai.base import ExtractionError
 from app.ai.translate import TRANSLATABLE_FIELDS
@@ -22,7 +22,7 @@ from app.api.schemas import (
     TranslateIn,
 )
 from app.config import get_settings
-from app.models import Draft, Job, SearchRequest, SourceDocument
+from app.models import Draft, Job, SearchRequest, SourceDocument, User
 from app.pdf import render_formula_pdf
 from app.search.automation import configured_sources
 from app.services import RuleViolation
@@ -279,16 +279,27 @@ def translate_draft(draft_id: str, body: TranslateIn, user: Preparer, db: DB):
 
 
 @router.post("/drafts/{draft_id}/submit")
-def submit(draft_id: str, body: RowVersionIn, user: Preparer, db: DB):
+def submit(draft_id: str, body: RowVersionIn, user: Preparer, db: DB, background: BackgroundTasks):
     draft = _get(db, Draft, draft_id)
     services.submit_draft(db, user, draft, body.row_version)
     audit.record(db, user.id, "draft_submitted", "draft", draft.id, content_sha256=services.content_hash(draft.content))
     _commit(db)
+    # Every other active pharmacist may approve it.
+    reviewers = db.scalars(select(User).where(User.role == "pharmacist", User.is_active.is_(True), User.id != user.id))
+    formula = _formula_name(draft)
+    background.add_task(mail.deliver, [
+        mail.awaiting_approval(p.email, p.full_name, formula, draft.number, user.full_name,
+                               mail.link(f"/drafts/{draft.id}")) for p in reviewers])
     return serialize.draft_detail(db, draft, user)
 
 
+def _formula_name(draft: Draft) -> str:
+    c = draft.content or {}
+    return c.get("proposed_formula_name") or c.get("active_ingredient") or draft.number
+
+
 @router.post("/drafts/{draft_id}/decision")
-def decide(draft_id: str, body: DecisionIn, user: Pharmacist, db: DB):
+def decide(draft_id: str, body: DecisionIn, user: Pharmacist, db: DB, background: BackgroundTasks):
     draft = _get(db, Draft, draft_id)
     pharmacy = _issuing_pharmacy(db, user, body.pharmacy_id) if body.decision == "approved" else None
     decision = services.decide(db, user, draft, body.decision, body.notes, body.content_sha256)
@@ -302,6 +313,11 @@ def decide(draft_id: str, body: DecisionIn, user: Pharmacist, db: DB):
     audit.record(db, user.id, f"draft_{decision.decision}", "draft", draft.id, content_sha256=decision.content_sha256)
     _commit(db)
     db.refresh(draft)
+    submitter = db.get(User, decision.preparer_id) if decision.preparer_id else None
+    if submitter is not None and submitter.is_active and submitter.id != user.id:
+        background.add_task(mail.deliver, [mail.decision(
+            submitter.email, submitter.full_name, decision.decision, _formula_name(draft), draft.number,
+            user.full_name, decision.notes, mail.link(f"/drafts/{draft.id}"))])
     return serialize.draft_detail(db, draft, user)
 
 

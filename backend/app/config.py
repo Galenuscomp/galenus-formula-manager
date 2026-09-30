@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Encrypts secrets users store in the database (their AI provider API keys).
     # Changing it makes every stored key unreadable; users then re-enter them.
     secrets_key: str | None = None
+    # E-mail notifications through Resend (https://resend.com); unset = no e-mail.
+    resend_api_key: str | None = None
+    mail_from: str = "Master Formula Manager <noreply@galenus.info>"
 
     ai_provider: Literal["anthropic", "openai", "fake", "none"] = "none"
     anthropic_model: str = "claude-opus-5"

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from sqlalchemy import select
 
-from app import audit, passwords
+from app import audit, mail, passwords
+from app.config import get_settings
 from app.api import serialize
 from app.api.deps import DB, Admin
 from app.api.schemas import UserCreateIn, UserUpdateIn
@@ -24,7 +25,7 @@ def list_users(_: Admin, db: DB):
 
 
 @router.post("", status_code=201)
-def create_user(body: UserCreateIn, actor: Admin, db: DB):
+def create_user(body: UserCreateIn, actor: Admin, db: DB, background: BackgroundTasks):
     email = body.email.strip().lower()
     if db.scalar(select(User).where(User.email == email)):
         raise HTTPException(409, "A user with this e-mail already exists")
@@ -45,7 +46,19 @@ def create_user(body: UserCreateIn, actor: Admin, db: DB):
     link = passwords.issue_link(db, user, actor.id) if body.password is None else None
     audit.record(db, actor.id, "user_created", "user", user.id, role=user.role, invited=link is not None)
     db.commit()
+    if link:
+        link["emailed"] = _email_link(background, user, link)
     return {**_admin_view(user, "default"), "password_link": link}
+
+
+def _email_link(background: BackgroundTasks, user: User, link: dict) -> bool:
+    """Also send the invitation / reset link to the user; the admin still sees it to pass on."""
+    if not mail.enabled():
+        return False
+    url = mail.link(link["path"])
+    make = mail.invitation if link["purpose"] == "invite" else mail.password_reset
+    background.add_task(mail.deliver, [make(user.email, user.full_name, url)])
+    return True
 
 
 @router.patch("/{user_id}")
@@ -75,7 +88,7 @@ def update_user(user_id: str, body: UserUpdateIn, actor: Admin, db: DB):
 
 
 @router.post("/{user_id}/password-link")
-def create_password_link(user_id: str, actor: Admin, db: DB):
+def create_password_link(user_id: str, actor: Admin, db: DB, background: BackgroundTasks):
     """One-time link for the user to choose a new password (or their first one)."""
     user = db.get(User, user_id)
     if user is None:
@@ -85,4 +98,19 @@ def create_password_link(user_id: str, actor: Admin, db: DB):
     link = passwords.issue_link(db, user, actor.id)
     audit.record(db, actor.id, f"password_{link['purpose']}_link_created", "user", user.id)
     db.commit()
+    link["emailed"] = _email_link(background, user, link)
     return link
+
+
+@router.get("/mail")
+def mail_status(_: Admin):
+    return {"enabled": mail.enabled(), "from": get_settings().mail_from}
+
+
+@router.post("/mail/test")
+def mail_test(actor: Admin):
+    """Send a test e-mail to the admin now (not in the background), to show whether it works."""
+    error = mail.send(mail.test_message(actor.email))
+    if error:
+        raise RuleViolation(error)
+    return {"ok": True, "to": actor.email}

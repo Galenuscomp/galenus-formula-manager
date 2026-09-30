@@ -12,6 +12,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/use-toast";
 import { ErrorBlock, ErrorList, LoadingBlock } from "@/components/PageState";
 import CatalogImportCard from "@/components/CatalogImportCard";
+import MailCard from "@/components/MailCard";
 import PasswordLinkDialog from "@/components/PasswordLinkDialog";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -181,6 +182,7 @@ export default function Users() {
           ))}
         </ul>
       )}
+      <MailCard />
       <CatalogImportCard />
       <UserDialog open={dialog.open} editing={dialog.editing}
         onOpenChange={(open) => setDialog((d) => ({ ...d, open }))}

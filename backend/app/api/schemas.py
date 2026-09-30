@@ -21,6 +21,10 @@ class PasswordChangeIn(Strict):
     new_password: str = Field(max_length=200)
 
 
+class ForgotPasswordIn(Strict):
+    email: str = Field(max_length=320)
+
+
 class PasswordLinkCheckIn(Strict):
     token: str = Field(min_length=20, max_length=100)
 

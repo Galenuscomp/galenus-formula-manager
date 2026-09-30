@@ -26,8 +26,14 @@ export default function PasswordLinkDialog({ link, user, onClose }) {
           <DialogTitle>{link?.purpose === "invite" ? "Invitation link" : "Password reset link"}</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
+          {link?.emailed ? (
+            <p className="text-sm text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+              We e-mailed this link to <span className="font-medium">{user?.email}</span>. You can also send it yourself
+              (WhatsApp…) if it does not arrive.
+            </p>
+          ) : null}
           <p className="text-sm text-slate-600">
-            Send this link to <span className="font-medium text-slate-900">{user?.email}</span> (e-mail, WhatsApp…).
+            {link?.emailed ? "The link" : <>Send this link to <span className="font-medium text-slate-900">{user?.email}</span> (e-mail, WhatsApp…).</>}{" "}
             They open it and choose their own password. It works once and expires {link && formatDateTime(link.expires_at)}.
           </p>
           <div className="flex gap-2">
