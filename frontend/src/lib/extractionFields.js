@@ -442,7 +442,7 @@ export function normalizeActiveIngredients(rawAIs, sourceName = "", sourceFormul
         exclusion_reason: ai.exclusion_reason || "",
         sort_order: ai.sort_order ?? i,
         review_status: ai.review_status || "pending",
-        manually_edited: false,
+        manually_edited: !!ai.manually_edited, // kept when already-normalized rows pass through again
         edited_by: "",
         edited_at: "",
         source_value: sourceValue,

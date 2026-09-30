@@ -27,6 +27,13 @@ const progressSteps = [
   "Extraction completed",
 ];
 
+// Same active ingredients (names and strengths) in two sources need no choice.
+function aiSignature(source) {
+  return (source.data?.active_ingredients || [])
+    .map((ai) => `${(ai.name || "").toLowerCase().trim()}|${ai.concentration || ""}${ai.concentration_unit || ""}`)
+    .sort().join(";");
+}
+
 // Extraction runs on the server in the background. This panel only reads the
 // stored results, so leaving the page or refreshing never loses or repeats work.
 function deriveSources(draft) {
@@ -77,6 +84,7 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
   const [applying, setApplying] = React.useState(false);
   const [validationResult, setValidationResult] = React.useState(null);
   const [activeIngredients, setActiveIngredients] = React.useState([]);
+  const [aiSourceId, setAiSourceId] = React.useState(null); // which source's active ingredients are used
   const [searchMatch, setSearchMatch] = React.useState(null);
 
   const anyRunning = sources.some((s) => s.status === "pending" || s.status === "reading");
@@ -104,17 +112,41 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
     const initialReviewState = computeInitialReviewState(doneSources);
     setReviewState(initialReviewState);
     setConfirmPhase("idle");
-    const bestSource = doneSources.find((s) => s.data?.active_ingredients?.length > 0);
-    const normalizedAIs = normalizeActiveIngredients(bestSource?.data?.active_ingredients || [], bestSource?.sourceName, bestSource?.formulaId);
-    setActiveIngredients(normalizedAIs);
-    setSearchMatch(
-      draft.request?.active_ingredient && normalizedAIs.length > 0
-        ? validateSearchMatch(draft.request.active_ingredient, normalizedAIs)
-        : null
-    );
-    const draftValues = reviewStateToDraftValues(initialReviewState);
-    setValidationResult(validateDraftValues({ ...draftValues, active_ingredients: normalizedAIs }));
+    // Active ingredients come from one source. When sources disagree the pharmacist chooses;
+    // nothing is picked for them.
+    const withAIs = doneSources.filter((s) => s.data?.active_ingredients?.length > 0);
+    const agree = withAIs.length > 0 && withAIs.every((s) => aiSignature(s) === aiSignature(withAIs[0]));
+    const chosen = withAIs.length === 1 || agree ? withAIs[0] : null;
+    setAiSourceId(chosen ? chosen.formulaId : null);
+    setActiveIngredients(chosen
+      ? normalizeActiveIngredients(chosen.data.active_ingredients, chosen.sourceName, chosen.formulaId) : []);
   }, [doneKey]);
+
+  const chooseAiSource = (formulaId) => {
+    const s = sources.find((x) => x.formulaId === formulaId);
+    setAiSourceId(formulaId);
+    setActiveIngredients(normalizeActiveIngredients(s?.data?.active_ingredients || [], s?.sourceName, s?.formulaId));
+  };
+
+  // Kept current as the pharmacist resolves fields: fields that differ between sources are
+  // listed apart from fields no source has.
+  React.useEffect(() => {
+    const unresolved = Object.entries(reviewState).filter(([, s]) => s.conflict && !s.resolved).map(([k]) => k);
+    const draftValues = reviewStateToDraftValues(reviewState);
+    unresolved.forEach((k) => {
+      const field = COMPARISON_FIELDS.find((f) => f.key === k);
+      if (field?.draftKey) draftValues[field.draftKey] = "(awaiting choice)";
+    });
+    const result = validateDraftValues({ ...draftValues, active_ingredients: activeIngredients });
+    setValidationResult({
+      ...result,
+      conflicts: unresolved.map((k) => COMPARISON_FIELDS.find((f) => f.key === k)?.label || k),
+    });
+    setSearchMatch(draft.request?.active_ingredient && activeIngredients.length > 0
+      ? validateSearchMatch(draft.request.active_ingredient, activeIngredients.map((ai) => ({
+        ...ai, name: ai.ingredient_name || ai.name })))
+      : null);
+  }, [reviewState, activeIngredients, draft.request?.active_ingredient]);
 
   // With AI off for this user, results someone else already extracted are still shown.
   if (!aiEnabled && !anyResult) {
@@ -179,9 +211,14 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
   const conflictFields = Object.entries(reviewState).filter(([, s]) => s.conflict);
   const unresolvedConflicts = conflictFields.filter(([, s]) => !s.resolved);
   const hasNote = pharmacistNote.trim().length > 0;
-  const canApply = doneSources.length > 0 && unresolvedConflicts.length === 0 && hasNote;
+  const aiSources = doneSources.filter((s) => s.data?.active_ingredients?.length > 0);
+  const aiChoicePending = aiSources.length > 1 && !aiSourceId;
+  const canApply = doneSources.length > 0 && unresolvedConflicts.length === 0 && hasNote && !aiChoicePending;
 
   const validationMessages = [];
+  if (aiChoicePending) {
+    validationMessages.push("Choose which source's active ingredients to use.");
+  }
   if (unresolvedConflicts.length > 0) {
     validationMessages.push(
       `${unresolvedConflicts.length} conflict field${unresolvedConflicts.length === 1 ? "" : "s"} require pharmacist review before applying.`
@@ -352,14 +389,27 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
 
       {status === "complete" && doneSources.length > 0 && (
         <>
+          {validationResult?.conflicts?.length > 0 && (
+            <div className="mb-3 rounded-lg bg-violet-50 border border-violet-200 px-4 py-3">
+              <p className="text-sm font-medium text-violet-800">
+                {validationResult.conflicts.length} field{validationResult.conflicts.length === 1 ? " differs" : "s differ"} between
+                the sources — choose a value for each below
+              </p>
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {validationResult.conflicts.map((field) => (
+                  <span key={field} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800 border border-violet-200">
+                    {field}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {validationResult && !validationResult.isValid && (
             <div className="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
               <div className="flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-sm font-medium text-amber-800">
-                    Extraction incomplete — mandatory fields missing
-                  </p>
+                  <p className="text-sm font-medium text-amber-800">Not found in any source</p>
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
                     {validationResult.missing.map((field) => (
                       <span key={field} className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 border border-amber-200">
@@ -368,7 +418,7 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
                     ))}
                   </div>
                   <p className="text-xs text-amber-600 mt-1.5">
-                    Review the extracted values below and fill in missing fields manually, or retry extraction.
+                    Enter these manually below (or after applying, in the draft), or retry extraction.
                   </p>
                 </div>
               </div>
@@ -379,10 +429,29 @@ export default function DraftExtractionPanel({ draft, form = {}, onApply, onReex
               Extraction completed {formatDateTime(extractionCompletedAt)}
             </p>
           )}
-          {activeIngredients.length > 0 && (
-            <div className="mb-4">
-              <h3 className="text-sm font-semibold text-slate-900 mb-2">Active Ingredients</h3>
-              <ActiveIngredientsTable activeIngredients={activeIngredients} />
+          {aiSources.length > 0 && (
+            <div className="mb-4 space-y-2">
+              <h3 className="text-sm font-semibold text-slate-900">Active Ingredients</h3>
+              {aiSources.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={cn("text-xs", aiChoicePending ? "text-violet-700 font-medium" : "text-slate-500")}>
+                    {aiChoicePending ? "The sources differ — use active ingredients from:" : "Active ingredients from:"}
+                  </span>
+                  {aiSources.map((s) => (
+                    <button key={s.formulaId} type="button" onClick={() => chooseAiSource(s.formulaId)}
+                      className={cn("rounded-lg border px-3 py-1.5 text-xs text-left",
+                        aiSourceId === s.formulaId ? "border-teal-400 bg-teal-50" : "border-slate-200 bg-white hover:bg-slate-50")}>
+                      <SourceLabel source={s.sourceName} />{" "}
+                      <span className="text-slate-600">
+                        {s.data.active_ingredients.map((ai) => [ai.name, ai.concentration, ai.concentration_unit].filter(Boolean).join(" ")).join(", ")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!aiChoicePending && (
+                <ActiveIngredientsTable activeIngredients={activeIngredients} onChange={setActiveIngredients} />
+              )}
             </div>
           )}
           {searchMatch && !searchMatch.match && (

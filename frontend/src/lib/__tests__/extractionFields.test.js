@@ -19,6 +19,17 @@ describe("normalizeActiveIngredients", () => {
   it("keeps an existing id", () => {
     expect(normalizeActiveIngredients([{ id: "keep", name: "X" }])[0].id).toBe("keep");
   });
+
+  it("round-trips already-normalized rows, keeping the pharmacist's edits and their mark", () => {
+    const [first] = normalizeActiveIngredients([{ name: "Aspirin", concentration: "81", concentration_unit: "mg/mL" }]);
+    const edited = { ...first, strength_value: "20", manually_edited: true };
+    const [again] = normalizeActiveIngredients([edited]);
+    expect(again.ingredient_name).toBe("Aspirin");
+    expect(again.strength_value).toBe("20");
+    expect(again.strength_unit).toBe("mg/mL");
+    expect(again.manually_edited).toBe(true);
+    expect(again.id).toBe(first.id);
+  });
 });
 
 describe("review state", () => {
