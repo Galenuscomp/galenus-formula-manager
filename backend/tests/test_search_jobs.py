@@ -11,9 +11,9 @@ from tests.conftest import PDF
 
 @pytest.fixture(autouse=True)
 def ct_account(db, users):
-    """The pharmacy's CompoundingToday login is saved, so downloads are automated."""
-    db.add(SourceAccount(source="CompoundingToday", username_encrypted=crypto.encrypt("pharmacy"),
-                         password_encrypted=crypto.encrypt("secret")))
+    """The technician saved their CompoundingToday login, so their downloads are automated."""
+    db.add(SourceAccount(user_id=users["tech"].id, source="CompoundingToday",
+                         username_encrypted=crypto.encrypt("pharmacy"), password_encrypted=crypto.encrypt("secret")))
     db.commit()
 
 
@@ -170,58 +170,81 @@ def test_download_button_queues_one_formula(client, db, monkeypatch):
     assert medisca.status_code == 422
 
 
-def test_source_accounts_admin_only_and_password_never_returned(client, db, monkeypatch):
-    assert client("tech").get("/api/source-accounts").status_code == 403
-    admin = client("admin")
-    r = admin.put("/api/source-accounts/MEDISCA", json={"username": "lab@pharmacy.test"})
+def test_source_accounts_are_per_user_and_password_never_returned(client, db, users):
+    pharm = client("pharm")
+    r = pharm.put("/api/source-accounts/MEDISCA", json={"username": "lab@pharmacy.test"})
     assert r.status_code == 422  # a new account needs a password
-    r = admin.put("/api/source-accounts/MEDISCA", json={"username": "lab@pharmacy.test", "password": "Sup3r-secret"})
+    r = pharm.put("/api/source-accounts/MEDISCA", json={"username": "lab@pharmacy.test", "password": "Sup3r-secret"})
     assert r.status_code == 200 and "Sup3r-secret" not in r.text
-    row = db.get(SourceAccount, "MEDISCA")
-    db.refresh(row)
+    row = db.get(SourceAccount, (users["pharm"].id, "MEDISCA"))
     assert "Sup3r-secret" not in row.password_encrypted and crypto.decrypt(row.password_encrypted) == "Sup3r-secret"
-    views = {v["source"]: v for v in admin.get("/api/source-accounts").json()}
-    assert views["MEDISCA"]["username"] == "lab@pharmacy.test" and views["MEDISCA"]["downloads_supported"] is True
+    views = {v["source"]: v for v in pharm.get("/api/source-accounts").json()}
+    assert views["MEDISCA"]["username"] == "lab@pharmacy.test" and views["CompoundingToday"]["configured"] is False
+    # Each user sees only their own: the technician's CompoundingToday login, not the pharmacist's MEDISCA one.
+    tech_views = {v["source"]: v for v in client("tech").get("/api/source-accounts").json()}
+    assert tech_views["CompoundingToday"]["configured"] is True and tech_views["MEDISCA"]["configured"] is False
+    assert client("pharm").get("/api/config").json()["automated_sources"] == ["MEDISCA"]
     # Changing only the username keeps the password.
-    admin.put("/api/source-accounts/MEDISCA", json={"username": "other@pharmacy.test"})
+    pharm.put("/api/source-accounts/MEDISCA", json={"username": "other@pharmacy.test"})
     db.refresh(row)
     assert crypto.decrypt(row.password_encrypted) == "Sup3r-secret"
-    assert admin.put("/api/source-accounts/Unknown", json={"username": "u", "password": "p"}).status_code == 404
-    assert admin.delete("/api/source-accounts/MEDISCA").json()[1]["configured"] is False
+    assert pharm.put("/api/source-accounts/Unknown", json={"username": "u", "password": "p"}).status_code == 404
+    assert pharm.delete("/api/source-accounts/MEDISCA").json()[1]["configured"] is False
 
 
-def test_source_account_login_check(client, monkeypatch):
+def test_source_account_login_check_result_is_kept(client, monkeypatch):
     from app.search import compounding_today
 
-    admin = client("admin")
-    monkeypatch.setattr(compounding_today, "check_login", lambda creds: None)
-    assert admin.post("/api/source-accounts/CompoundingToday/test").json() == {"ok": True}
+    tech = client("tech")
+    seen = []
+    monkeypatch.setattr(compounding_today, "check_login", lambda creds: seen.append(creds))
+    r = tech.post("/api/source-accounts/CompoundingToday/test").json()
+    assert r["ok"] is True and "successfully" in r["message"] and seen[0].key.startswith("compoundingtoday-")
+    ct = {v["source"]: v for v in tech.get("/api/source-accounts").json()}["CompoundingToday"]
+    assert ct["check_ok"] is True and ct["checked_at"]
 
     def rejected(creds):
-        raise SearchFailed("CompoundingToday rejected the username or password.", retryable=False)
+        raise SearchFailed("CompoundingToday did not accept the username or password.", retryable=False)
 
     monkeypatch.setattr(compounding_today, "check_login", rejected)
-    r = admin.post("/api/source-accounts/CompoundingToday/test")
-    assert r.status_code == 422 and "rejected" in r.json()["detail"]
+    r = tech.post("/api/source-accounts/CompoundingToday/test").json()
+    assert r["ok"] is False and "did not accept" in r["message"]
+    ct = {v["source"]: v for v in r["accounts"]}["CompoundingToday"]
+    assert ct["check_ok"] is False and "did not accept" in ct["check_message"]
+    assert client("pharm").post("/api/source-accounts/CompoundingToday/test").status_code == 422  # none saved
+
+
+def test_download_uses_the_requesting_users_login(client, db, users, monkeypatch):
+    req = _create(client("tech"))
+    job = db.query(Job).filter_by(request_id=req["id"]).one()
+    assert job.requested_by == users["tech"].id
+    seen = {}
+    monkeypatch.setattr(jobs, "fetch_source", lambda db_, source, **k: seen.update(k) or _found())
+    jobs.run_pending(db)
+    assert seen["user_id"] == users["tech"].id
+    # A pharmacist without a CompoundingToday login gets no automated download.
+    assert db.query(Job).filter_by(request_id=_create(client("pharm"))["id"]).count() == 0
 
 
 @pytest.fixture
-def medisca_account(db):
-    db.add(SourceAccount(source="MEDISCA", username_encrypted=crypto.encrypt("lab@pharmacy.test"),
+def medisca_account(db, users):
+    db.add(SourceAccount(user_id=users["tech"].id, source="MEDISCA",
+                         username_encrypted=crypto.encrypt("lab@pharmacy.test"),
                          password_encrypted=crypto.encrypt("secret")))
     db.commit()
 
 
-def test_medisca_downloads_only_exact_catalog_formulas(client, db, monkeypatch, medisca_account):
+def test_medisca_search_or_exact_catalog_formula(client, db, monkeypatch, medisca_account):
     api = client("tech")
-    # Without a catalog pick there is no MEDISCA search job (their site is not searched by keyword).
+    # Without a catalog pick: a keyword search on MEDISCA's library.
     req = _create(api, sources=("MEDISCA",))
-    assert db.query(Job).filter_by(request_id=req["id"]).count() == 0
-    r = api.post(f"/api/requests/{req['id']}/search", json={"source_name": "MEDISCA"})
-    assert r.status_code == 422 and "catalog" in r.json()["detail"]
+    job = db.query(Job).filter_by(request_id=req["id"]).one()
+    assert job.source_name == "MEDISCA" and job.payload is None
     # From a catalog pick: that exact formula number.
     ref = {"source": "MEDISCA", "formula_id": "F000473", "title": "Diazepam 5 mg/mL Oral Liquid",
            "url": "https://www.medisca.com/formulas/library?q=F000473"}
+    db.query(Job).delete()
+    db.commit()
     req = _create(api, sources=("MEDISCA",), catalog_ref=ref)
     job = db.query(Job).filter_by(request_id=req["id"]).one()
     assert job.source_name == "MEDISCA" and job.payload["formula_id"] == "F000473"
@@ -229,21 +252,44 @@ def test_medisca_downloads_only_exact_catalog_formulas(client, db, monkeypatch, 
     monkeypatch.setattr(jobs, "fetch_source", lambda db_, source, **k: seen.update(source=source, **k) or FoundDocument(
         pdf=PDF, filename="m.pdf", source_name="MEDISCA", source_formula_id="F000473", title="Diazepam", url=ref["url"]))
     jobs.run_pending(db)
-    assert seen["source"] == "MEDISCA" and seen["formula_id"] == "F000473"
+    assert seen["source"] == "MEDISCA" and seen["formula_id"] == "F000473" and seen["strength"] == "10 mg/mL"
     assert api.get(f"/api/requests/{req['id']}").json()["documents"][0]["source_formula_id"] == "F000473"
 
 
-def test_medisca_adapter_rejects_non_catalog_numbers():
+def test_medisca_search_picks_the_closest_formula():
+    from app.search.medisca import best_match
+
+    rows = [  # as MEDISCA's library lists them for "Diazepam"
+        {"number": "F000474", "title": "Diazepam 5 mg/5 mL Oral Liquid (Suspension, 480 mL)", "route": "Oral", "form": "Liquid"},
+        {"number": "F001603", "title": "Diazepam 25 mg/mL Rectal Gel", "route": "Rectal", "form": "Gel"},
+        {"number": "F000452", "title": "Diazepam 5 mg Rectal Suppositories", "route": "Rectal", "form": "Suppository"},
+        {"number": "F000473", "title": "Diazepam 5 mg per mL Oral Liquid (Suspension, 20 mL)", "route": "Oral", "form": "Liquid"},
+    ]
+    assert best_match(rows, "Diazepam", "5 mg/mL", "oral suspension")["number"] == "F000473"
+    assert best_match(rows, "Diazepam", "5 mg", "suppository")["number"] == "F000452"
+    assert best_match(rows, "Diazepam", "", "")["number"] == "F000474"  # nothing to go on: MEDISCA's first
+    # A formula with another strength is never taken instead.
+    assert best_match(rows, "Diazepam", "10 mg/mL", "oral suspension") is None
+    combo = [{"number": "F1", "title": "Ketoprofen 10% Topical Cream", "route": "", "form": ""},
+             {"number": "F3", "title": "Baclofen 2%, Ketoprofen 10%, Loperamide 5% Topical Gel", "route": "", "form": ""},
+             {"number": "F4", "title": "Cyclobenzaprine 5%, Ketoprofen 10%, Lidocaine HCl 5% Topical Cream",
+              "route": "", "form": ""},
+             {"number": "F2", "title": "Ketoprofen 10%, Lidocaine Hydrochloride 5% Topical Cream", "route": "", "form": ""}]
+    assert best_match(combo, "Ketoprofen, Lidocaine HCl", "10%, 5%", "cream")["number"] == "F2"
+    assert best_match([], "X", "", "") is None
+
+
+def test_medisca_adapter_rejects_malformed_numbers():
     from app.search import medisca
     from app.search.automation import Credentials
 
     with pytest.raises(SearchFailed) as info:
-        medisca.fetch(Credentials("u", "p"), active_ingredient="Diazepam", formula_id="")
-    assert "catalog" in str(info.value) and info.value.retryable is False
+        medisca.fetch(Credentials("u", "p"), active_ingredient="Diazepam", formula_id="12; drop")
+    assert info.value.retryable is False
 
 
 def test_medisca_login_check(client, monkeypatch, medisca_account):
     from app.search import medisca
 
     monkeypatch.setattr(medisca, "check_login", lambda creds: None)
-    assert client("admin").post("/api/source-accounts/MEDISCA/test").json() == {"ok": True}
+    assert client("tech").post("/api/source-accounts/MEDISCA/test").json()["ok"] is True

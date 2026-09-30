@@ -51,7 +51,7 @@ def app_config(user: CurrentUser, db: DB):
     ident = services.ai_identity_for(db, user.id)
     return {
         # Sources the worker can download PDFs from (adapter + saved login).
-        "automated_sources": sorted(configured_sources(db)),
+        "automated_sources": sorted(configured_sources(db, user.id)),
         "ai_enabled": ident is not None,
         "ai_provider": ident[0] if ident else "none",
         "max_upload_mb": s.max_upload_mb,
@@ -127,7 +127,7 @@ def get_request(request_id: str, _: CurrentUser, db: DB):
 def retry_search(request_id: str, body: RetrySearchIn, user: Preparer, db: DB):
     req = _get(db, SearchRequest, request_id)
     payload = {"formula_id": body.formula_id, "title": body.title, "url": body.url} if body.formula_id else None
-    job = services.retry_search(db, req, body.source_name, payload)
+    job = services.retry_search(db, user, req, body.source_name, payload)
     audit.record(db, user.id, "search_queued", "request", req.id, source=body.source_name)
     _commit(db)
     return serialize.job(job)
@@ -137,7 +137,7 @@ def retry_search(request_id: str, body: RetrySearchIn, user: Preparer, db: DB):
 def download_formula(request_id: str, body: CatalogRefIn, user: Preparer, db: DB):
     """Download one catalog formula's PDF from its source in the background."""
     req = _get(db, SearchRequest, request_id)
-    job = services.download_formula(db, req, body.source, body.formula_id, body.title, body.url)
+    job = services.download_formula(db, user, req, body.source, body.formula_id, body.title, body.url)
     audit.record(db, user.id, "download_queued", "request", req.id, source=body.source, formula_id=body.formula_id)
     _commit(db)
     return serialize.job(job)

@@ -73,17 +73,22 @@ class UserAISettings(Base):
 
 
 class SourceAccount(Base):
-    """The pharmacy's login to a formula source (CompoundingToday, MEDISCA), used by
-    the worker to download PDFs. Both fields are encrypted (app.crypto); the
-    password is never sent back to the browser."""
+    """A user's own login to a formula source (CompoundingToday, MEDISCA). Downloads run
+    with the login of the user who asked for them. Both fields are encrypted
+    (app.crypto); the password is never sent back to the browser."""
 
     __tablename__ = "source_accounts"
 
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     source: Mapped[str] = mapped_column(String(40), primary_key=True)
     username_encrypted: Mapped[str] = mapped_column(Text)
     password_encrypted: Mapped[str] = mapped_column(Text)
     updated_by: Mapped[str | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=utcnow, onupdate=utcnow)
+    # Result of the last "Test login", shown next to the account.
+    checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime())
+    check_ok: Mapped[bool | None] = mapped_column(Boolean)
+    check_message: Mapped[str | None] = mapped_column(String(500))
 
 
 class AuthSession(TimestampMixin, Base):

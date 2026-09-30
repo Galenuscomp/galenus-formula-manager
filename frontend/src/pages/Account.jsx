@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import AISettingsCard from "@/components/AISettingsCard";
 import PasswordInput from "@/components/PasswordInput";
 import PharmaciesCard from "@/components/PharmaciesCard";
+import SourceAccountsCard from "@/components/SourceAccountsCard";
 import { ErrorList } from "@/components/PageState";
 import PasswordRules from "@/components/PasswordRules";
 import { passwordRules } from "@/lib/passwordRules";
@@ -72,6 +73,7 @@ export default function Account() {
         </Button>
       </form>
       {user.role === "pharmacist" && <PharmaciesCard />}
+      {user.role !== "admin" && <SourceAccountsCard />}
       <AISettingsCard />
     </div>
   );

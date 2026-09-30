@@ -123,6 +123,7 @@ def _run_search(db: Session, job: Job) -> None:
         found = fetch_source(
             db,
             job.source_name,
+            user_id=job.requested_by,  # with the login of the user who asked for it
             active_ingredient=request.active_ingredient,
             strength=request.strength,
             dosage_form=request.dosage_form,

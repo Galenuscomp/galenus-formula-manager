@@ -24,25 +24,28 @@ FORMULAS_URL = f"{BASE_URL}/formulation/Formula.cfm"
 COOLDOWN_SECONDS = 5 * 60
 NAV_TIMEOUT_MS = 30_000
 LOGIN_FORM = 'form[name="frmLogin2"], form:has(input[name="strPassword"])'
-# A long-standing formula, used by "Test login" to confirm a PDF really downloads.
-CHECK_FORMULA_ID = "233"
 
 
-def _cooldown_path():
-    return browser.session_dir() / "compoundingtoday-cooldown.json"
+LOGIN_URL = f"{BASE_URL}/Login.cfm"
+# CompoundingToday caps PDF downloads per day; its wording is not documented, so match loosely.
+_DAILY_LIMIT = re.compile(r"(daily|download)\s+limit|limit\s+(of|has been|reached|exceeded)|exceeded|maximum number", re.I)
 
 
-def _check_cooldown() -> None:
+def _cooldown_path(key: str):
+    return browser.session_dir() / f"{key}-cooldown.json"
+
+
+def _check_cooldown(key: str) -> None:
     try:
-        until = json.loads(_cooldown_path().read_text())["until"]
+        until = json.loads(_cooldown_path(key).read_text())["until"]
     except (OSError, ValueError, KeyError):
         return
     if until > time.time():
         raise SearchCooldown(f"CompoundingToday account in use; retry in {int(until - time.time())} s")
 
 
-def _start_cooldown() -> None:
-    _cooldown_path().write_text(json.dumps({"until": time.time() + COOLDOWN_SECONDS}))
+def _start_cooldown(key: str) -> None:
+    _cooldown_path(key).write_text(json.dumps({"until": time.time() + COOLDOWN_SECONDS}))
 
 
 def _is_login_url(url: str) -> bool:
@@ -104,34 +107,51 @@ def _download_pdf(page, context, creds: Credentials, pdf_url: str, referer: str)
         page.goto(pdf_url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
     except Exception:
         pass  # a direct PDF response aborts navigation ("Download is starting")
-    if _account_in_use(page):
-        _start_cooldown()
-        raise SearchCooldown("CompoundingToday: Account in Use")
+    _raise_if_blocked(page, creds)
     form = page.locator(LOGIN_FORM).first
     if form.count():
         _submit_login(page, form, creds)
-        if _account_in_use(page):
-            _start_cooldown()
-            raise SearchCooldown("CompoundingToday: Account in Use")
+        _raise_if_blocked(page, creds)
     pdf = _request_pdf(context, pdf_url, referer)
     if pdf:
         return pdf
     if _is_login_url(page.url) or page.locator(LOGIN_FORM).count():
-        browser.forget_session(SOURCE)
+        browser.forget_session(creds.key)
         raise SearchFailed("CompoundingToday did not accept the login. Check the username and password "
-                           "under Users > Source accounts, and that the membership is active.", retryable=False)
+                           "under Account > Source accounts, and that the membership is active.", retryable=False)
+    _raise_if_blocked(page, creds)
     raise SearchFailed("CompoundingToday did not return a PDF for this formula", retryable=True)
 
 
+def _raise_if_blocked(page, creds: Credentials) -> None:
+    if _account_in_use(page):
+        _start_cooldown(creds.key)
+        raise SearchCooldown("CompoundingToday: Account in Use")
+    text = browser.page_text(page, 2000)
+    if _DAILY_LIMIT.search(text) and "%PDF" not in text:
+        raise SearchFailed("CompoundingToday's daily download limit for this account is reached. "
+                           "Try again tomorrow.", retryable=False)
+
+
 def check_login(creds: Credentials) -> None:
-    """Sign in and confirm a formula PDF really comes back (browsing works without a login)."""
-    _check_cooldown()
+    """Sign in on Login.cfm only. Downloading a PDF would count against the account's daily
+    download limit, so "Test login" never does."""
+    _check_cooldown(creds.key)
     try:
-        with browser.exclusive(SOURCE, wait=False), browser.browser_context(SOURCE) as context:
-            info = f"{BASE_URL}/formulation/FormulaInfo.cfm?ID={CHECK_FORMULA_ID}"
-            pdf_url = f"{BASE_URL}/formulation/FormulaPDF.cfm?FormulaID={CHECK_FORMULA_ID}"
-            _download_pdf(context.new_page(), context, creds, pdf_url, info)
-            browser.save_session(context, SOURCE)
+        with browser.exclusive(creds.key, wait=False), browser.browser_context(creds.key) as context:
+            page = context.new_page()
+            page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            form = page.locator(LOGIN_FORM).first
+            if form.count() == 0:
+                raise SearchFailed("CompoundingToday sign-in form was not found", retryable=True)
+            _submit_login(page, form, creds)
+            if _account_in_use(page):
+                _start_cooldown(creds.key)
+                raise SearchCooldown("CompoundingToday: Account in Use")
+            if _is_login_url(page.url) and page.locator(LOGIN_FORM).count():
+                browser.forget_session(creds.key)
+                raise SearchFailed("CompoundingToday did not accept the username or password.", retryable=False)
+            browser.save_session(context, creds.key)
     except (SearchCooldown, SearchFailed):
         raise
     except Exception as exc:
@@ -139,13 +159,14 @@ def check_login(creds: Credentials) -> None:
                            retryable=True) from exc
 
 
-def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", title: str = "") -> FoundDocument:
+def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", title: str = "",
+          strength: str = "", dosage_form: str = "") -> FoundDocument:
     formula_id = formula_id.strip()
     if formula_id and not formula_id.isdigit():
         raise SearchFailed(f"Invalid CompoundingToday formula ID: {formula_id}", retryable=False)
-    _check_cooldown()
+    _check_cooldown(creds.key)
     try:
-        with browser.exclusive(SOURCE, wait=True), browser.browser_context(SOURCE) as context:
+        with browser.exclusive(creds.key, wait=True), browser.browser_context(creds.key) as context:
             page = context.new_page()
             if formula_id:
                 selected = {"id": formula_id, "title": title.strip(),
@@ -164,7 +185,7 @@ def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", t
                 raise SearchFailed("CompoundingToday formula page has no PDF link", retryable=False)
             pdf_url = urljoin(page.url, link.get_attribute("href") or "")
             pdf = _download_pdf(page, context, creds, pdf_url, selected["url"])
-            browser.save_session(context, SOURCE)
+            browser.save_session(context, creds.key)
     except (SearchCooldown, SearchFailed, SearchNoResults):
         raise
     except Exception as exc:  # browser/network errors: worth another try

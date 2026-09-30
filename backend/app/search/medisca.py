@@ -10,12 +10,15 @@ How the site works (checked against the live site):
   id, and the PDF follows. Without library access (a MEDISCA formulation
   package) that call answers "formula_access_unauthorized".
 We click the button like a user rather than calling the API, so we never need
-MEDISCA's internal ids. Only exact catalog formula numbers are downloaded.
+MEDISCA's internal ids. Without a catalog formula number, the library is
+searched and only a formula with every requested ingredient and strength is
+taken (see best_match); otherwise nothing is downloaded.
 """
 
 import re
 import time
 
+from app.catalog import STRENGTH
 from app.search import browser
 from app.search.automation import Credentials, FoundDocument, SearchFailed, SearchNoResults
 
@@ -60,11 +63,11 @@ def _sign_in(page, context, creds: Credentials) -> None:
     while time.monotonic() < deadline:
         page.wait_for_timeout(1000)
         if _signed_in(context):
-            browser.save_session(context, SOURCE)
+            browser.save_session(context, creds.key)
             return
-    browser.forget_session(SOURCE)
+    browser.forget_session(creds.key)
     message = browser.page_text(page, 300)
-    raise SearchFailed("MEDISCA did not accept the email or password. Check them under Users > Source accounts."
+    raise SearchFailed("MEDISCA did not accept the email or password. Check them under Account > Source accounts."
                        + (f" (MEDISCA says: {message[:160]})" if "invalid" in message.lower() else ""),
                        retryable=False)
 
@@ -76,7 +79,7 @@ def _ensure_signed_in(page, context, creds: Credentials) -> None:
 
 def check_login(creds: Credentials) -> None:
     try:
-        with browser.exclusive(SOURCE, wait=False), browser.browser_context(SOURCE) as context:
+        with browser.exclusive(creds.key, wait=False), browser.browser_context(creds.key) as context:
             page = context.new_page()
             _ensure_signed_in(page, context, creds)
     except SearchFailed:
@@ -163,17 +166,91 @@ def _download(page, context, number: str) -> tuple[bytes, str]:
     raise SearchFailed(f"MEDISCA accepted the download but no PDF arrived (answer fields: {keys})", retryable=True)
 
 
-def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", title: str = "") -> FoundDocument:
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"(?<=\d)-(?=[a-z%])", " ", text.lower().replace("per ", "/"))).replace(" /", "/")
+
+
+def _names(active_ingredient: str) -> list[str]:
+    return [n.strip() for n in re.split(r",|\band\b|\+", active_ingredient) if n.strip()]
+
+
+def _strengths(strength: str) -> list[str]:
+    return [s.strip() for s in strength.split(",") if s.strip()]
+
+
+def best_match(rows: list[dict], active_ingredient: str, strength: str, dosage_form: str) -> dict | None:
+    """The library row for this request, or None. A formula counts only if it has every requested
+    active ingredient and every requested strength: a similar formula with another strength is
+    not downloaded silently. Among those, dosage-form words decide; ties keep MEDISCA's order."""
+    # The base name only: salts are written differently ("Lidocaine HCl" / "Lidocaine Hydrochloride").
+    names = [n.lower().split()[0] for n in _names(active_ingredient)]
+    wanted = [_norm(s).replace(" ", "") for s in _strengths(strength)]
+    form_words = re.findall(r"[a-z]{3,}", dosage_form.lower())
+
+    def text_of(row: dict) -> str:
+        return _norm(" ".join((row["title"], row.get("route", ""), row.get("form", ""))))
+
+    def fits(row: dict) -> bool:
+        text = text_of(row)
+        compact = text.replace(" ", "")
+        # "5mg/ml" must not match inside "25mg/ml"
+        return all(n in text for n in names) and all(
+            re.search(rf"(?<![\d.]){re.escape(s)}", compact) for s in wanted)
+
+    def extra_actives(row: dict) -> int:
+        """Strengths beyond those requested = other active ingredients. The package size in
+        brackets ("(Suspension, 480 mL)") is not a strength."""
+        name = re.sub(r"\([^)]*\)", "", row["title"])
+        return max(0, len(STRENGTH.findall(name)) - max(1, len(wanted)))
+
+    candidates = [(i, r) for i, r in enumerate(rows) if fits(r)]
+    ranked = sorted(candidates, key=lambda item: (
+        extra_actives(item[1]), -sum(w in text_of(item[1]) for w in form_words), item[0]))
+    return ranked[0][1] if ranked else None
+
+
+def _search(page, query: str) -> list[dict]:
+    page.goto(LIBRARY_URL.format(query), wait_until="networkidle", timeout=NAV_TIMEOUT_MS)
+    _reject_cookies(page)
+    rows = []
+    for tr in page.locator("tbody tr").all():
+        cells = [re.sub(r"\s+", " ", c.inner_text()).strip() for c in tr.locator("td").all()]
+        if len(cells) >= 4 and FORMULA_NUMBER.fullmatch(cells[-1]):
+            rows.append({"number": cells[-1], "title": cells[0], "route": cells[1], "form": cells[2]})
+    return rows
+
+
+def _find(page, active_ingredient: str, strength: str, dosage_form: str) -> dict | None:
+    """MEDISCA's search matches the words as one phrase and shows about 20 rows, so search the
+    first ingredient with its strength ("Ketoprofen 20%") first, then the ingredient alone."""
+    names, strengths = _names(active_ingredient), _strengths(strength)
+    if not names:
+        return None
+    queries = [f"{names[0]} {strengths[0]}"] if strengths else []
+    queries.append(names[0])
+    for query in queries:
+        match = best_match(_search(page, query), active_ingredient, strength, dosage_form)
+        if match:
+            return match
+    return None
+
+
+def fetch(creds: Credentials, *, active_ingredient: str, formula_id: str = "", title: str = "",
+          strength: str = "", dosage_form: str = "") -> FoundDocument:
     number = formula_id.strip().upper()
-    if not FORMULA_NUMBER.fullmatch(number):
-        raise SearchFailed("For MEDISCA, pick the formula from the catalog (a number such as F000473).",
-                           retryable=False)
+    if number and not FORMULA_NUMBER.fullmatch(number):
+        raise SearchFailed(f"Invalid MEDISCA formula number: {formula_id}", retryable=False)
     try:
-        with browser.exclusive(SOURCE, wait=True), browser.browser_context(SOURCE) as context:
+        with browser.exclusive(creds.key, wait=True), browser.browser_context(creds.key) as context:
             page = context.new_page()
             _ensure_signed_in(page, context, creds)
+            if not number:
+                match = _find(page, active_ingredient, strength, dosage_form)
+                if match is None:
+                    raise SearchNoResults()
+                number, title = match["number"], match["title"]
             pdf, found_title = _download(page, context, number)
-            browser.save_session(context, SOURCE)
+            browser.save_session(context, creds.key)
     except (SearchFailed, SearchNoResults):
         raise
     except Exception as exc:  # browser/network errors: worth another try
